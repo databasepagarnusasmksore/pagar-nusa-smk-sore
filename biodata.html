@@ -97,6 +97,29 @@ function renderUkt(data){
 }
 async function loadBio(loginUsername=currentUsername,loginUser=user){if(!loginUser)throw new Error('Sesi Firebase belum tersedia.');const token=await loginUser.getIdToken(true);if(!loginUsername||!token)throw new Error('Data login lokal belum lengkap.');const r=await request('biodataGet',{username:loginUsername,idToken:token});currentUsername=loginUsername;currentMemberId=String(r.account?.memberId||r.biodata?.memberId||'').trim();if(!currentMemberId)throw new Error('ID Anggota untuk akun ini belum terhubung. Hubungi admin.');user=loginUser;render(r.biodata);renderUkt(r.ukt);$('studentName').textContent=r.biodata?.name||'Anggota';$('studentIdentity').textContent=currentMemberId+' · '+(r.account?.email||loginUser.email||'');$('loginView').classList.add('hidden');$('portalView').classList.remove('hidden')}
 async function saveBio(){const s=$('bioStatus');s.className='status';s.textContent='Menyimpan perubahan...';$('saveBtn').disabled=true;try{const token=await user.getIdToken(true);const payload={username:currentUsername,memberId:currentMemberId,idToken:token};document.querySelectorAll('#bioGrid [data-key]').forEach(el=>{if(!lockedKeys.has(el.dataset.key))payload[el.dataset.key]=el.value});const r=await request('biodataUpdate',payload);render(r.biodata);renderUkt(r.ukt);$('savedBox').classList.add('show');s.className='status ok';s.textContent=r.message||'Perubahan biodata berhasil disimpan.';$('studentName').textContent=r.biodata?.name||'Anggota'}catch(e){s.className='status err';s.textContent=e.message||'Gagal menyimpan biodata.'}finally{$('saveBtn').disabled=false}}
+let pnPortalLiveRefreshBusy=false;
+async function pnRefreshPortalLive(){
+  if(pnPortalLiveRefreshBusy||!user||!currentUsername||document.hidden)return false;
+  if($('portalView')?.classList.contains('hidden'))return false;
+  if(!$('saveBtn')?.classList.contains('hidden'))return false;
+  pnPortalLiveRefreshBusy=true;
+  try{
+    const token=await user.getIdToken(false);
+    const r=await request('biodataGet',{username:currentUsername,memberId:currentMemberId,idToken:token});
+    if(r?.biodata){
+      render(r.biodata);
+      $('studentName').textContent=r.biodata?.name||'Anggota';
+    }
+    if(r?.ukt)renderUkt(r.ukt);
+    return true;
+  }catch(err){
+    console.warn('Refresh portal anggota:',err);
+    return false;
+  }finally{pnPortalLiveRefreshBusy=false}
+}
+window.addEventListener('focus',()=>setTimeout(pnRefreshPortalLive,250));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(pnRefreshPortalLive,250)});
+setInterval(pnRefreshPortalLive,20000);
 function loginErrorText(e){const c=String(e?.code||'');if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))return'Email atau password tidak benar.';if(c.includes('too-many-requests'))return'Terlalu banyak percobaan login. Coba beberapa saat lagi.';return e?.message||'Login gagal.'}
 buildFields();
 if(endpointReady()){$('setupNotice').textContent='Portal Biodata aktif · UKT 1–5 + ASPEL · versi 10. Silakan login menggunakan akun masing-masing.';$('setupNotice').classList.add('ok');$('loginBtn').disabled=false}else{$('setupNotice').innerHTML='<b>Portal Biodata sudah dipisahkan dari CBT.</b><br>Menunggu URL Web App Apps Script biodata baru dipasang oleh admin.'}
@@ -105,6 +128,6 @@ $('loginForm').addEventListener('submit',async e=>{e.preventDefault();$('loginEr
 onAuthStateChanged(auth,async u=>{if(!u){user=null;$('portalView').classList.add('hidden');$('loginView').classList.remove('hidden');return}if(loginInFlight)return;sessionStorage.removeItem('pnBioUsername');sessionStorage.removeItem('pnBioMemberId');currentUsername='';currentMemberId='';user=null;try{await signOut(auth)}catch(_){}});
 $('editBtn').addEventListener('click',()=>setEdit(true));$('cancelBtn').addEventListener('click',()=>{render(bio);setEdit(false)});$('saveBtn').addEventListener('click',saveBio);$('logoutBtn').addEventListener('click',async()=>{sessionStorage.removeItem('pnBioUsername');sessionStorage.removeItem('pnBioMemberId');currentUsername='';currentMemberId='';await signOut(auth)});
 </script>
-<script src="js/biodata-date-display-fix-v2.js?v=4"></script>
+<script src="js/biodata-date-display-fix-v2.js?v=5"></script>
 </body>
 </html>
