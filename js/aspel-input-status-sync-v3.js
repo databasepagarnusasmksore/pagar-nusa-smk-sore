@@ -1,194 +1,100 @@
 (()=>{
 'use strict';
 
-if(window.__pnAspelInputStatusSyncV3)return;
-window.__pnAspelInputStatusSyncV3=true;
+if(window.__pnAspelInputStatusSyncV4)return;
+window.__pnAspelInputStatusSyncV4=true;
 
 const PANEL_ID='pnAspelMonitorPanel';
-let syncTimer=0;
-let mutationHookInstalled=false;
+const ENDPOINT='https://script.google.com/macros/s/AKfycbyJi_83lJ11JshOLCzIBRMX6fEi-y9UGR9eYULuqH1BivdxeqcgMB0l2ehWBIgaad8Oyw/exec';
+const TOKEN_KEY='pnReviewAdminToken';
+const EXIT_SYNC_KEY='pnAspelExitStatusSyncV4';
+let syncTimer=0,mutationHookInstalled=false,serverSyncBusy=false;
 
 const clean=v=>String(v??'').trim();
 const keyName=v=>clean(v).toLowerCase().replace(/\s+/g,' ');
+const personKey=(id,name)=>clean(id).toUpperCase()||('NAME:'+keyName(name));
+const savedValue=key=>{try{return localStorage.getItem(key)||sessionStorage.getItem(key)||''}catch(_){return''}};
 
-function putStatus(index,id,name,status,source){
-  status=clean(status);
-  if(!status)return;
-  const item={status,source:clean(source)};
-  const idKey=clean(id).toUpperCase();
-  const nameKey=keyName(name);
-  if(idKey)index.byId.set(idKey,item);
-  if(nameKey)index.byName.set(nameKey,item);
+function jsonp(action,payload={},timeoutMs=18000){
+  return new Promise((resolve,reject)=>{
+    const cb='pnAspelStatusCb_'+Date.now()+'_'+Math.random().toString(36).slice(2).replace(/[^a-z0-9_]/gi,'');
+    const script=document.createElement('script');let done=false;
+    const cleanup=()=>{clearTimeout(timer);try{delete window[cb]}catch(_){}script.remove()};
+    window[cb]=data=>{if(done)return;done=true;cleanup();data&&data.ok?resolve(data):reject(new Error(data?.message||'Sinkron status ditolak server.'))};
+    const qs=new URLSearchParams({action,callback:cb,_:String(Date.now())});Object.entries(payload).forEach(([k,v])=>qs.set(k,String(v??'')));
+    script.src=ENDPOINT+'?'+qs.toString();script.async=true;
+    script.onerror=()=>{if(done)return;done=true;cleanup();reject(new Error('Jaringan sinkron status bermasalah.'))};
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('Sinkron status terlalu lama.'))},timeoutMs);
+    document.head.appendChild(script);
+  });
+}
+
+function putStatus(index,id,name,status,studentStatus='',source=''){
+  status=clean(status);if(!status)return;const item={id:clean(id),name:clean(name),status,studentStatus:clean(studentStatus),source:clean(source)};
+  const idKey=clean(id).toUpperCase(),nameKey=keyName(name);if(idKey)index.byId.set(idKey,item);if(nameKey)index.byName.set(nameKey,item);
 }
 
 function liveStatusIndex(){
   const index={byId:new Map(),byName:new Map()};
-
+  try{if(typeof students!=='undefined'&&Array.isArray(students))students.forEach(p=>{if(p)putStatus(index,p.id,p.name,p.memberStatus,p.studentStatus,'Data Siswa')})}catch(_){}
   try{
-    if(typeof students!=='undefined'&&Array.isArray(students)){
-      students.forEach(person=>{
-        if(!person)return;
-        const status=clean(person.memberStatus);
-        const normalized=keyName(status);
-        if(normalized.includes('nonaktif')||normalized.includes('non aktif')||normalized.includes('tidak aktif')){
-          putStatus(index,person.id,person.name,status,'MENU INPUT DATA • Data Siswa');
-        }
-      });
-    }
-  }catch(_){}
-
-  try{
-    if(typeof docs!=='undefined'&&docs&&docs['Data Keluar']&&typeof cellText==='function'&&typeof cellMaps!=='undefined'&&cellMaps&&cellMaps['Data Keluar']){
+    if(typeof docs!=='undefined'&&docs&&docs['Data Keluar']&&typeof cellText==='function'&&typeof cellMaps!=='undefined'&&cellMaps?.['Data Keluar']){
       for(let row=6;row<=300;row++){
-        const id=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'D'+row));
-        const name=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'E'+row));
-        const finalStatus=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'G'+row));
-        if((!id&&!name)||!finalStatus)continue;
-        const normalized=keyName(finalStatus);
-        if(!(normalized.includes('keluar')||normalized.includes('nonaktif')||normalized.includes('non aktif')||normalized.includes('tidak aktif')))continue;
-        putStatus(index,id,name,finalStatus,'MENU INPUT DATA • Data Keluar');
+        const id=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'D'+row)),name=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'E'+row)),status=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'G'+row));
+        const n=keyName(status);if((!id&&!name)||!(n.includes('keluar')||n.includes('nonaktif')||n.includes('non aktif')||n.includes('tidak aktif')))continue;
+        putStatus(index,id,name,status,'','Data Keluar');
       }
     }
   }catch(_){}
-
   return index;
 }
 
-function statusFor(index,id,name){
-  const idKey=clean(id).toUpperCase();
-  const nameKey=keyName(name);
-  return (idKey&&index.byId.get(idKey))||(nameKey&&index.byName.get(nameKey))||null;
+function exitStatusMap(){
+  const map={};
+  try{
+    if(typeof docs!=='undefined'&&docs&&docs['Data Keluar']&&typeof cellText==='function'&&typeof cellMaps!=='undefined'&&cellMaps?.['Data Keluar']){
+      for(let row=6;row<=300;row++){
+        const id=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'D'+row)),name=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'E'+row)),status=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'G'+row));
+        const n=keyName(status);if((!id&&!name)||!(n.includes('keluar')||n.includes('nonaktif')||n.includes('non aktif')||n.includes('tidak aktif')))continue;
+        map[personKey(id,name)]={id,name,status};
+      }
+    }
+  }catch(_){}
+  return map;
 }
+function readPreviousMap(){try{return JSON.parse(localStorage.getItem(EXIT_SYNC_KEY)||'{}')||{}}catch(_){return{}}}
+function savePreviousMap(map){try{localStorage.setItem(EXIT_SYNC_KEY,JSON.stringify(map))}catch(_){}}
 
-function candidateIdentity(card){
-  const name=clean(card.querySelector('.pnAspelCandidateName')?.textContent);
-  const meta=clean(card.querySelector('.pnAspelCandidateMeta')?.textContent);
-  const first=clean(meta.split('•')[0]);
-  const id=/^(PN-|PGR-|[A-Z]{2,}-?\d)/i.test(first)?first:'';
-  return {id,name};
-}
-
-function rememberOriginalBadge(card,badge){
-  if(card.dataset.pnOriginalBadgeSaved==='1')return;
-  card.dataset.pnOriginalBadgeSaved='1';
-  card.dataset.pnOriginalBadgeText=clean(badge?.textContent);
-  card.dataset.pnOriginalBadgeClass=badge?.className||'pnAspelBadge';
-  card.dataset.pnOriginalBadgeTitle=badge?.title||'';
-}
-
-function setLiveMeta(card,item){
-  const meta=card.querySelector('.pnAspelCandidateMeta');
-  if(!meta)return;
-  let live=meta.querySelector('.pnAspelLiveStatus');
-  if(!live){
-    live=document.createElement('span');
-    live.className='pnAspelLiveStatus';
-    meta.appendChild(live);
-  }
-  live.textContent=' • STATUS TERBARU: '+item.status;
-  live.style.fontWeight='1000';
-}
-
-function clearLiveMeta(card){
-  card.querySelector('.pnAspelLiveStatus')?.remove();
-}
-
-function setBadge(card,item){
-  if(!item)return false;
-  let badge=card.querySelector('.pnAspelBadge');
-  if(!badge){
-    badge=document.createElement('span');
-    badge.className='pnAspelBadge';
-    card.appendChild(badge);
-  }
-  rememberOriginalBadge(card,badge);
-
-  const normalized=keyName(item.status);
-  const targetClass=normalized.includes('keluar')?'keluar':(
-    normalized.includes('nonaktif')||normalized.includes('non aktif')||normalized.includes('tidak aktif')?'nonaktif':''
-  );
-  let changed=false;
-
-  if(clean(badge.textContent)!==item.status){badge.textContent=item.status;changed=true}
-  ['aktif','nonaktif','keluar'].forEach(cls=>{
-    const shouldHave=cls===targetClass;
-    if(badge.classList.contains(cls)!==shouldHave){badge.classList.toggle(cls,shouldHave);changed=true}
-  });
-  const title='Status otomatis dari '+(item.source||'MENU INPUT DATA');
-  if(badge.title!==title){badge.title=title;changed=true}
-  if(card.dataset.pnInputStatus!==item.status){card.dataset.pnInputStatus=item.status;changed=true}
-  setLiveMeta(card,item);
-  return changed;
-}
-
-function restoreBadge(card){
-  if(card.dataset.pnOriginalBadgeSaved!=='1'||!card.dataset.pnInputStatus)return false;
-  const badge=card.querySelector('.pnAspelBadge');
-  if(badge){
-    badge.textContent=card.dataset.pnOriginalBadgeText||'Calon Anggota';
-    badge.className=card.dataset.pnOriginalBadgeClass||'pnAspelBadge';
-    badge.title=card.dataset.pnOriginalBadgeTitle||'';
-  }
-  delete card.dataset.pnInputStatus;
-  clearLiveMeta(card);
+async function pushStatus(item){
+  const token=savedValue(TOKEN_KEY);if(!token||!item)return false;const index=liveStatusIndex();
+  const live=(clean(item.id)&&index.byId.get(clean(item.id).toUpperCase()))||(keyName(item.name)&&index.byName.get(keyName(item.name)))||item;
+  await jsonp('aspelStatusAdminSync',{token,memberId:live.id||item.id,name:live.name||item.name,membershipStatus:live.status||item.status,studentStatus:live.studentStatus||''});
   return true;
 }
 
-function syncCandidates(){
-  const panel=document.getElementById(PANEL_ID);
-  if(!panel)return 0;
-  const index=liveStatusIndex();
-  let changed=0;
-  panel.querySelectorAll('.pnAspelCandidate').forEach(card=>{
-    const who=candidateIdentity(card);
-    const item=statusFor(index,who.id,who.name);
-    if(item){
-      if(setBadge(card,item))changed++;
-    }else if(restoreBadge(card))changed++;
-  });
-
-  const source=panel.querySelector('.pnAspelSource');
-  const sourceText='SUMBER: BIODATA + MENU INPUT DATA';
-  if(source&&clean(source.textContent)!==sourceText)source.textContent=sourceText;
-  const desc=panel.querySelector('.pnAspelHead p');
-  const descText='Relasi Koordinator dari Portal Biodata Siswa. Status Keluar/Nonaktif disinkronkan otomatis dari MENU INPUT DATA tanpa menghapus riwayat pendampingan.';
-  if(desc&&clean(desc.textContent)!==descText)desc.textContent=descText;
-  return changed;
+async function syncExitStatusesToServer(force=false){
+  if(serverSyncBusy)return;const token=savedValue(TOKEN_KEY);if(!token)return;
+  const current=exitStatusMap(),previous=readPreviousMap(),changes=[];
+  Object.entries(current).forEach(([key,item])=>{if(force||!previous[key]||previous[key].status!==item.status)changes.push(item)});
+  Object.entries(previous).forEach(([key,item])=>{if(current[key])return;const index=liveStatusIndex();const live=(clean(item.id)&&index.byId.get(clean(item.id).toUpperCase()))||(keyName(item.name)&&index.byName.get(keyName(item.name)));if(live)changes.push(live)});
+  if(!changes.length)return;serverSyncBusy=true;
+  try{let allOk=true;for(const item of changes){try{await pushStatus(item)}catch(err){allOk=false;console.warn('Sinkron status Aspel:',err)}}if(allOk)savePreviousMap(current)}finally{serverSyncBusy=false}
 }
 
-function queueSync(delay=40){
-  clearTimeout(syncTimer);
-  syncTimer=setTimeout(syncCandidates,delay);
-}
+function statusFor(index,id,name){const idKey=clean(id).toUpperCase(),nameKey=keyName(name);return(idKey&&index.byId.get(idKey))||(nameKey&&index.byName.get(nameKey))||null}
+function candidateIdentity(card){const name=clean(card.querySelector('.pnAspelCandidateName')?.textContent),meta=clean(card.querySelector('.pnAspelCandidateMeta')?.textContent),first=clean(meta.split('•')[0]);const id=/^(PN-|PGR-|[A-Z]{2,}-?\d|\d{6,})/i.test(first)?first:'';return{id,name}}
+function rememberOriginalBadge(card,badge){if(card.dataset.pnOriginalBadgeSaved==='1')return;card.dataset.pnOriginalBadgeSaved='1';card.dataset.pnOriginalBadgeText=clean(badge?.textContent);card.dataset.pnOriginalBadgeClass=badge?.className||'pnAspelBadge';card.dataset.pnOriginalBadgeTitle=badge?.title||''}
+function setLiveMeta(card,item){const meta=card.querySelector('.pnAspelCandidateMeta');if(!meta)return;let live=meta.querySelector('.pnAspelLiveStatus');if(!live){live=document.createElement('span');live.className='pnAspelLiveStatus';meta.appendChild(live)}live.textContent=' • STATUS TERBARU: '+item.status;live.style.fontWeight='1000'}
+function clearLiveMeta(card){card.querySelector('.pnAspelLiveStatus')?.remove()}
+function setBadge(card,item){if(!item)return false;let badge=card.querySelector('.pnAspelBadge');if(!badge){badge=document.createElement('span');badge.className='pnAspelBadge';card.appendChild(badge)}rememberOriginalBadge(card,badge);const n=keyName(item.status),cls=n.includes('keluar')?'keluar':(n.includes('nonaktif')||n.includes('non aktif')||n.includes('tidak aktif')?'nonaktif':'');badge.textContent=item.status;badge.classList.remove('aktif','nonaktif','keluar');if(cls)badge.classList.add(cls);badge.title='Status otomatis dari '+(item.source||'MENU INPUT DATA');card.dataset.pnInputStatus=item.status;setLiveMeta(card,item);return true}
+function restoreBadge(card){if(card.dataset.pnOriginalBadgeSaved!=='1'||!card.dataset.pnInputStatus)return false;const badge=card.querySelector('.pnAspelBadge');if(badge){badge.textContent=card.dataset.pnOriginalBadgeText||'Calon Anggota';badge.className=card.dataset.pnOriginalBadgeClass||'pnAspelBadge';badge.title=card.dataset.pnOriginalBadgeTitle||''}delete card.dataset.pnInputStatus;clearLiveMeta(card);return true}
+function syncCandidates(){const panel=document.getElementById(PANEL_ID);if(!panel)return 0;const index=liveStatusIndex();let changed=0;panel.querySelectorAll('.pnAspelCandidate').forEach(card=>{const who=candidateIdentity(card),item=statusFor(index,who.id,who.name);if(item){if(setBadge(card,item))changed++}else if(restoreBadge(card))changed++});const source=panel.querySelector('.pnAspelSource');if(source)source.textContent='SUMBER: BIODATA + MENU INPUT DATA';return changed}
+function queueSync(delay=60){clearTimeout(syncTimer);syncTimer=setTimeout(()=>{syncCandidates();syncExitStatusesToServer(false)},delay)}
+function installMutationHook(){if(mutationHookInstalled||typeof window.afterMutation!=='function')return false;const original=window.afterMutation;window.afterMutation=async function(...args){const result=await original.apply(this,args);queueSync(25);setTimeout(()=>{syncCandidates();syncExitStatusesToServer(false)},300);return result};mutationHookInstalled=true;return true}
 
-function installMutationHook(){
-  if(mutationHookInstalled||typeof window.afterMutation!=='function')return false;
-  const original=window.afterMutation;
-  window.afterMutation=async function(...args){
-    const result=await original.apply(this,args);
-    queueSync(25);
-    setTimeout(()=>queueSync(25),350);
-    return result;
-  };
-  mutationHookInstalled=true;
-  return true;
-}
-
-const observer=new MutationObserver(()=>queueSync(30));
-if(document.documentElement)observer.observe(document.documentElement,{childList:true,subtree:true});
-
-document.addEventListener('click',event=>{
-  if(event.target?.closest('#pnAspelMonitorNav,#pnAspelRefresh'))queueSync(120);
-},true);
-
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)queueSync(80)});
-window.addEventListener('online',()=>queueSync(100));
-setInterval(()=>{
-  installMutationHook();
-  const panel=document.getElementById(PANEL_ID);
-  if(panel&&panel.offsetParent!==null)syncCandidates();
-},700);
-
-installMutationHook();
-queueSync(120);
+const observer=new MutationObserver(()=>queueSync(80));if(document.documentElement)observer.observe(document.documentElement,{childList:true,subtree:true});
+document.addEventListener('click',e=>{if(e.target?.closest('#pnAspelMonitorNav,#pnAspelRefresh'))queueSync(180)},true);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)queueSync(80)});window.addEventListener('online',()=>queueSync(100));
+setInterval(()=>{installMutationHook();syncCandidates();syncExitStatusesToServer(false)},2500);
+installMutationHook();queueSync(250);
 })();
