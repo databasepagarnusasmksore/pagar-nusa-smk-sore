@@ -6,6 +6,7 @@ window.__pnAspelInputStatusSyncV3=true;
 
 const PANEL_ID='pnAspelMonitorPanel';
 let syncTimer=0;
+let mutationHookInstalled=false;
 
 const clean=v=>String(v??'').trim();
 const keyName=v=>clean(v).toLowerCase().replace(/\s+/g,' ');
@@ -30,7 +31,7 @@ function liveStatusIndex(){
         const status=clean(person.memberStatus);
         const normalized=keyName(status);
         if(normalized.includes('nonaktif')||normalized.includes('non aktif')||normalized.includes('tidak aktif')){
-          putStatus(index,person.id,person.name,status,'Data Siswa');
+          putStatus(index,person.id,person.name,status,'MENU INPUT DATA • Data Siswa');
         }
       });
     }
@@ -67,6 +68,31 @@ function candidateIdentity(card){
   return {id,name};
 }
 
+function rememberOriginalBadge(card,badge){
+  if(card.dataset.pnOriginalBadgeSaved==='1')return;
+  card.dataset.pnOriginalBadgeSaved='1';
+  card.dataset.pnOriginalBadgeText=clean(badge?.textContent);
+  card.dataset.pnOriginalBadgeClass=badge?.className||'pnAspelBadge';
+  card.dataset.pnOriginalBadgeTitle=badge?.title||'';
+}
+
+function setLiveMeta(card,item){
+  const meta=card.querySelector('.pnAspelCandidateMeta');
+  if(!meta)return;
+  let live=meta.querySelector('.pnAspelLiveStatus');
+  if(!live){
+    live=document.createElement('span');
+    live.className='pnAspelLiveStatus';
+    meta.appendChild(live);
+  }
+  live.textContent=' • STATUS TERBARU: '+item.status;
+  live.style.fontWeight='1000';
+}
+
+function clearLiveMeta(card){
+  card.querySelector('.pnAspelLiveStatus')?.remove();
+}
+
 function setBadge(card,item){
   if(!item)return false;
   let badge=card.querySelector('.pnAspelBadge');
@@ -75,6 +101,7 @@ function setBadge(card,item){
     badge.className='pnAspelBadge';
     card.appendChild(badge);
   }
+  rememberOriginalBadge(card,badge);
 
   const normalized=keyName(item.status);
   const targetClass=normalized.includes('keluar')?'keluar':(
@@ -90,7 +117,21 @@ function setBadge(card,item){
   const title='Status otomatis dari '+(item.source||'MENU INPUT DATA');
   if(badge.title!==title){badge.title=title;changed=true}
   if(card.dataset.pnInputStatus!==item.status){card.dataset.pnInputStatus=item.status;changed=true}
+  setLiveMeta(card,item);
   return changed;
+}
+
+function restoreBadge(card){
+  if(card.dataset.pnOriginalBadgeSaved!=='1'||!card.dataset.pnInputStatus)return false;
+  const badge=card.querySelector('.pnAspelBadge');
+  if(badge){
+    badge.textContent=card.dataset.pnOriginalBadgeText||'Calon Anggota';
+    badge.className=card.dataset.pnOriginalBadgeClass||'pnAspelBadge';
+    badge.title=card.dataset.pnOriginalBadgeTitle||'';
+  }
+  delete card.dataset.pnInputStatus;
+  clearLiveMeta(card);
+  return true;
 }
 
 function syncCandidates(){
@@ -101,7 +142,9 @@ function syncCandidates(){
   panel.querySelectorAll('.pnAspelCandidate').forEach(card=>{
     const who=candidateIdentity(card);
     const item=statusFor(index,who.id,who.name);
-    if(item&&setBadge(card,item))changed++;
+    if(item){
+      if(setBadge(card,item))changed++;
+    }else if(restoreBadge(card))changed++;
   });
 
   const source=panel.querySelector('.pnAspelSource');
@@ -118,19 +161,34 @@ function queueSync(delay=40){
   syncTimer=setTimeout(syncCandidates,delay);
 }
 
+function installMutationHook(){
+  if(mutationHookInstalled||typeof window.afterMutation!=='function')return false;
+  const original=window.afterMutation;
+  window.afterMutation=async function(...args){
+    const result=await original.apply(this,args);
+    queueSync(25);
+    setTimeout(()=>queueSync(25),350);
+    return result;
+  };
+  mutationHookInstalled=true;
+  return true;
+}
+
 const observer=new MutationObserver(()=>queueSync(30));
 if(document.documentElement)observer.observe(document.documentElement,{childList:true,subtree:true});
 
 document.addEventListener('click',event=>{
-  if(event.target?.closest('#pnAspelMonitorNav,#pnAspelRefresh'))queueSync(250);
+  if(event.target?.closest('#pnAspelMonitorNav,#pnAspelRefresh'))queueSync(120);
 },true);
 
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)queueSync(80)});
 window.addEventListener('online',()=>queueSync(100));
 setInterval(()=>{
+  installMutationHook();
   const panel=document.getElementById(PANEL_ID);
   if(panel&&panel.offsetParent!==null)syncCandidates();
-},900);
+},700);
 
+installMutationHook();
 queueSync(120);
 })();
