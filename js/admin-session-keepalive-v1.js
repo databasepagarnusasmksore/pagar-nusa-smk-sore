@@ -81,10 +81,21 @@ function start(){
   timer=setInterval(keepAlive,KEEPALIVE_MS);
 }
 
+function loadAspelInputStatusSync(){
+  if(window.__pnAspelInputStatusSyncV3||document.getElementById('pnAspelInputStatusSyncV3'))return;
+  const script=document.createElement('script');
+  script.id='pnAspelInputStatusSyncV3';
+  script.src='js/aspel-input-status-sync-v3.js?v=20260823-1255';
+  script.async=true;
+  document.head.appendChild(script);
+}
+
 window.addEventListener('online',()=>setTimeout(keepAlive,1200));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(keepAlive,800)});
 window.addEventListener('pn:admin-login-success',()=>setTimeout(keepAlive,1500));
 
+loadAspelInputStatusSync();
+setTimeout(loadAspelInputStatusSync,1200);
 setTimeout(keepAlive,FIRST_PING_MS);
 start();
 })();
