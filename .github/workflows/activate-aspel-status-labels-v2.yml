@@ -1,0 +1,177 @@
+name: Aktifkan status Nonaktif Keluar Koordinator Aspel v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/activate-aspel-status-labels-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Revisi status pada pemantauan Koordinator Aspel
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'Marker tidak ditemukan: {label}')
+              return text.replace(old, new, 1)
+
+          # Backend: pertahankan relasi Aspel untuk Calon/Anggota/Nonaktif/Keluar.
+          backend = Path('backend/Code.gs')
+          text = backend.read_text(encoding='utf-8')
+          old = """    const membershipStatus = aspelMonitorNormalize_(row[14]);
+              if (membershipStatus !== 'CALON ANGGOTA') {
+                ignoredNonCandidateCount += 1;
+                return;
+              }
+          """
+          new = """    const membershipStatus = aspelMonitorNormalize_(row[14]);
+              const isCandidateOrMember =
+                membershipStatus === 'CALON ANGGOTA' ||
+                membershipStatus === 'AKTIF' ||
+                membershipStatus === 'ANGGOTA' ||
+                membershipStatus.indexOf('ANGGOTA ') === 0;
+              const isInactiveOrExit =
+                membershipStatus.indexOf('NONAKTIF') !== -1 ||
+                membershipStatus.indexOf('NON AKTIF') !== -1 ||
+                membershipStatus.indexOf('TIDAK AKTIF') !== -1 ||
+                membershipStatus.indexOf('KELUAR') !== -1;
+              if (!isCandidateOrMember && !isInactiveOrExit) {
+                ignoredNonCandidateCount += 1;
+                return;
+              }
+          """
+          text = replace_once(text, old, new, 'filter status Aspel backend')
+          if "aspelMonitorVersion:'1'" in text:
+              text = text.replace("aspelMonitorVersion:'1'", "aspelMonitorVersion:'2'", 1)
+          old_version = """    coordinators:coordinators,
+              version:'1'
+            };
+          """
+          new_version = """    coordinators:coordinators,
+              version:'2'
+            };
+          """
+          if old_version in text:
+              text = text.replace(old_version, new_version, 1)
+          backend.write_text(text, encoding='utf-8')
+
+          # Frontend monitor: badge status dan istilah "dampingan" agar status lama tetap jelas.
+          monitor = Path('js/aspel-monitor-v1.js')
+          text = monitor.read_text(encoding='utf-8')
+
+          css_marker = ".pnAspelUnassigned{"
+          css_add = ".pnAspelBadge.nonaktif{background:#f1f5f9;color:#475569;border-color:#cbd5e1}.pnAspelBadge.keluar{background:#fef2f2;color:#b91c1c;border-color:#fecaca}.pnAspelBadge.aktif{background:#ecfdf3;color:#166534;border-color:#bbf7d0}.pnAspelUnassigned{"
+          text = replace_once(text, css_marker, css_add, 'CSS badge status')
+
+          person_block = """function personMeta(person){
+            if(!person)return'';
+            return [person.memberId,person.className,person.program,person.entryYear?('Masuk '+person.entryYear):'',person.membershipStatus,person.studentStatus].filter(Boolean).join(' • ');
+          }
+
+          function renderCandidate(candidate){
+          """
+          person_new = """function personMeta(person){
+            if(!person)return'';
+            return [person.memberId,person.className,person.program,person.entryYear?('Masuk '+person.entryYear):'',person.membershipStatus,person.studentStatus].filter(Boolean).join(' • ');
+          }
+
+          function statusClass(status){
+            const s=norm(status).replace(/\\s+/g,' ');
+            if(!s)return'';
+            if(s.includes('keluar'))return' keluar';
+            if(s.includes('nonaktif')||s.includes('non aktif')||s.includes('tidak aktif'))return' nonaktif';
+            if(s.includes('aktif')||s==='anggota')return' aktif';
+            return'';
+          }
+
+          function statusBadge(person,fallback=''){
+            const label=String(person?.membershipStatus||fallback||'').trim();
+            return label?`<span class="pnAspelBadge${statusClass(label)}">${esc(label)}</span>`:'';
+          }
+
+          function renderCandidate(candidate){
+          """
+          text = replace_once(text, person_block, person_new, 'helper badge status')
+
+          old_candidate = """  return `<div class=\"pnAspelCandidate\"><div><div class=\"pnAspelCandidateName\">${esc(candidate.name||'-')}</div><div class=\"pnAspelCandidateMeta\">${esc(personMeta(candidate)||'-')}</div></div><span class=\"pnAspelBadge\">${esc(candidate.membershipStatus||'Calon Anggota')}</span></div>`;
+          """
+          new_candidate = """  return `<div class=\"pnAspelCandidate\"><div><div class=\"pnAspelCandidateName\">${esc(candidate.name||'-')}</div><div class=\"pnAspelCandidateMeta\">${esc(personMeta(candidate)||'-')}</div></div>${statusBadge(candidate,'Calon Anggota')}</div>`;
+          """
+          text = replace_once(text, old_candidate, new_candidate, 'render calon/anggota dampingan')
+
+          old_member = """  return `<section class=\"pnAspelMember\"><div class=\"pnAspelMemberHead\"><div class=\"pnAspelMemberTitle\">ANGGOTA KOORDINATOR: ${esc(member.name||'-')} <span>• ${candidates.length} calon anggota</span></div><div class=\"pnAspelMeta\">${esc(personMeta(member)||'Profil anggota belum ditemukan pada biodata.')}</div></div><div class=\"pnAspelCandidateList\">${candidates.map(renderCandidate).join('')||'<div class=\"pnAspelEmpty\">Belum ada calon anggota yang didampingi.</div>'}</div></section>`;
+          """
+          new_member = """  return `<section class=\"pnAspelMember\"><div class=\"pnAspelMemberHead\"><div class=\"pnAspelMemberTitle\">ANGGOTA KOORDINATOR: ${esc(member.name||'-')} ${statusBadge(member)} <span>• ${candidates.length} dampingan</span></div><div class=\"pnAspelMeta\">${esc(personMeta(member)||'Profil anggota belum ditemukan pada biodata.')}</div></div><div class=\"pnAspelCandidateList\">${candidates.map(renderCandidate).join('')||'<div class=\"pnAspelEmpty\">Belum ada anggota/calon anggota yang didampingi.</div>'}</div></section>`;
+          """
+          text = replace_once(text, old_member, new_member, 'render anggota koordinator')
+
+          text = text.replace(
+              "const parts=[coordinator.name,coordinator.memberId,coordinator.className,coordinator.program];",
+              "const parts=[coordinator.name,coordinator.memberId,coordinator.className,coordinator.program,coordinator.membershipStatus,coordinator.studentStatus];",
+              1
+          )
+          text = text.replace(
+              "parts.push(member.name,member.memberId,member.className,member.program);",
+              "parts.push(member.name,member.memberId,member.className,member.program,member.membershipStatus,member.studentStatus);",
+              1
+          )
+
+          replacements = {
+              'Urutan pemantauan: Koordinator → Anggota Koordinator → Calon Anggota yang Didampingi.':'Urutan pemantauan: Koordinator → Anggota Koordinator → Anggota/Calon Anggota yang Didampingi.',
+              'Cari koordinator, anggota koordinator, atau calon anggota':'Cari koordinator, anggota koordinator, atau data dampingan',
+              'KOORDINATOR → ANGGOTA KOORDINATOR → CALON ANGGOTA YANG DIDAMPINGI':'KOORDINATOR → ANGGOTA KOORDINATOR → ANGGOTA/CALON ANGGOTA YANG DIDAMPINGI',
+              'Koordinator → anggota → calon anggota':'Koordinator → anggota → dampingan',
+              '<span>Calon Anggota</span>':'<span>Data Dampingan</span>',
+              '${unassigned.length} calon anggota':'${unassigned.length} dampingan',
+              '${Number(coordinator.memberCount||0)} anggota • ${Number(coordinator.candidateCount||0)} calon':'${Number(coordinator.memberCount||0)} anggota • ${Number(coordinator.candidateCount||0)} dampingan',
+              'Belum ada Anggota Koordinator pada calon anggota di bawah koordinator ini.':'Belum ada Anggota Koordinator pada data dampingan di bawah koordinator ini.',
+              '${ignored} relasi Aspel tidak ditampilkan karena Status Keanggotaan bukan “Calon Anggota”.':'${ignored} relasi Aspel tidak ditampilkan karena status berada di luar Calon/Anggota/Nonaktif/Keluar.',
+              '${Number(monitorData.summary?.coordinatorCount||0)} koordinator • ${Number(monitorData.summary?.candidateCount||0)} calon anggota.':'${Number(monitorData.summary?.coordinatorCount||0)} koordinator • ${Number(monitorData.summary?.candidateCount||0)} data dampingan.'
+          }
+          for a,b in replacements.items():
+              if a in text:
+                  text = text.replace(a,b,1)
+
+          coord_name = "KOORDINATOR: ${esc(coordinator.name||'-')}</div>"
+          if coord_name in text:
+              text = text.replace(coord_name, "KOORDINATOR: ${esc(coordinator.name||'-')} ${statusBadge(coordinator)}</div>", 1)
+
+          monitor.write_text(text, encoding='utf-8')
+
+          # Cache bust supaya browser segera mengambil monitor terbaru.
+          compact = Path('js/admin-compact-v1.js')
+          text = compact.read_text(encoding='utf-8')
+          text = replace_once(text, "script.src='js/aspel-monitor-v1.js?v=2';", "script.src='js/aspel-monitor-v1.js?v=3';", 'cache Aspel monitor')
+          compact.write_text(text, encoding='utf-8')
+
+          index = Path('index.html')
+          text = index.read_text(encoding='utf-8')
+          text = replace_once(text, 'js/admin-compact-v1.js?v=11', 'js/admin-compact-v1.js?v=12', 'cache admin compact')
+          index.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit hasil revisi
+        run: |
+          if git diff --quiet -- backend/Code.gs js/aspel-monitor-v1.js js/admin-compact-v1.js index.html; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/Code.gs js/aspel-monitor-v1.js js/admin-compact-v1.js index.html
+          git commit -m "Tampilkan status Nonaktif dan Keluar pada Koordinator Aspel"
+          git push
