@@ -1,14 +1,14 @@
 (()=>{
 'use strict';
 
-if(window.__pnAspelInputStatusSyncV4)return;
-window.__pnAspelInputStatusSyncV4=true;
+if(window.__pnAspelInputStatusSyncV5)return;
+window.__pnAspelInputStatusSyncV5=true;
 
 const PANEL_ID='pnAspelMonitorPanel';
 const ENDPOINT='https://script.google.com/macros/s/AKfycbyJi_83lJ11JshOLCzIBRMX6fEi-y9UGR9eYULuqH1BivdxeqcgMB0l2ehWBIgaad8Oyw/exec';
 const TOKEN_KEY='pnReviewAdminToken';
-const EXIT_SYNC_KEY='pnAspelExitStatusSyncV4';
-let syncTimer=0,mutationHookInstalled=false,serverSyncBusy=false;
+const EXIT_SYNC_KEY='pnAspelExitStatusSyncV5';
+let syncTimer=0,mutationHookInstalled=false,serverSyncBusy=false,firstForcePending=true;
 
 const clean=v=>String(v??'').trim();
 const keyName=v=>clean(v).toLowerCase().replace(/\s+/g,' ');
@@ -73,12 +73,31 @@ async function pushStatus(item){
 }
 
 async function syncExitStatusesToServer(force=false){
-  if(serverSyncBusy)return;const token=savedValue(TOKEN_KEY);if(!token)return;
+  if(serverSyncBusy)return false;
+  const token=savedValue(TOKEN_KEY);if(!token)return false;
   const current=exitStatusMap(),previous=readPreviousMap(),changes=[];
   Object.entries(current).forEach(([key,item])=>{if(force||!previous[key]||previous[key].status!==item.status)changes.push(item)});
   Object.entries(previous).forEach(([key,item])=>{if(current[key])return;const index=liveStatusIndex();const live=(clean(item.id)&&index.byId.get(clean(item.id).toUpperCase()))||(keyName(item.name)&&index.byName.get(keyName(item.name)));if(live)changes.push(live)});
-  if(!changes.length)return;serverSyncBusy=true;
-  try{let allOk=true;for(const item of changes){try{await pushStatus(item)}catch(err){allOk=false;console.warn('Sinkron status Aspel:',err)}}if(allOk)savePreviousMap(current)}finally{serverSyncBusy=false}
+  if(!changes.length){
+    if(Object.keys(current).length&&force)firstForcePending=false;
+    return false;
+  }
+  serverSyncBusy=true;
+  try{
+    let allOk=true,synced=0;
+    for(const item of changes){
+      try{await pushStatus(item);synced++}
+      catch(err){allOk=false;console.warn('Sinkron status Aspel:',err)}
+    }
+    if(allOk){
+      savePreviousMap(current);
+      firstForcePending=false;
+      window.dispatchEvent(new CustomEvent('pn:aspel-status-synced',{detail:{count:synced,forced:!!force}}));
+      return true;
+    }
+    firstForcePending=true;
+    return false;
+  }finally{serverSyncBusy=false}
 }
 
 function statusFor(index,id,name){const idKey=clean(id).toUpperCase(),nameKey=keyName(name);return(idKey&&index.byId.get(idKey))||(nameKey&&index.byName.get(nameKey))||null}
@@ -89,12 +108,22 @@ function clearLiveMeta(card){card.querySelector('.pnAspelLiveStatus')?.remove()}
 function setBadge(card,item){if(!item)return false;let badge=card.querySelector('.pnAspelBadge');if(!badge){badge=document.createElement('span');badge.className='pnAspelBadge';card.appendChild(badge)}rememberOriginalBadge(card,badge);const n=keyName(item.status),cls=n.includes('keluar')?'keluar':(n.includes('nonaktif')||n.includes('non aktif')||n.includes('tidak aktif')?'nonaktif':'');badge.textContent=item.status;badge.classList.remove('aktif','nonaktif','keluar');if(cls)badge.classList.add(cls);badge.title='Status otomatis dari '+(item.source||'MENU INPUT DATA');card.dataset.pnInputStatus=item.status;setLiveMeta(card,item);return true}
 function restoreBadge(card){if(card.dataset.pnOriginalBadgeSaved!=='1'||!card.dataset.pnInputStatus)return false;const badge=card.querySelector('.pnAspelBadge');if(badge){badge.textContent=card.dataset.pnOriginalBadgeText||'Calon Anggota';badge.className=card.dataset.pnOriginalBadgeClass||'pnAspelBadge';badge.title=card.dataset.pnOriginalBadgeTitle||''}delete card.dataset.pnInputStatus;clearLiveMeta(card);return true}
 function syncCandidates(){const panel=document.getElementById(PANEL_ID);if(!panel)return 0;const index=liveStatusIndex();let changed=0;panel.querySelectorAll('.pnAspelCandidate').forEach(card=>{const who=candidateIdentity(card),item=statusFor(index,who.id,who.name);if(item){if(setBadge(card,item))changed++}else if(restoreBadge(card))changed++});const source=panel.querySelector('.pnAspelSource');if(source)source.textContent='SUMBER: BIODATA + MENU INPUT DATA';return changed}
-function queueSync(delay=60){clearTimeout(syncTimer);syncTimer=setTimeout(()=>{syncCandidates();syncExitStatusesToServer(false)},delay)}
-function installMutationHook(){if(mutationHookInstalled||typeof window.afterMutation!=='function')return false;const original=window.afterMutation;window.afterMutation=async function(...args){const result=await original.apply(this,args);queueSync(25);setTimeout(()=>{syncCandidates();syncExitStatusesToServer(false)},300);return result};mutationHookInstalled=true;return true}
+function queueSync(delay=60,force=false){clearTimeout(syncTimer);syncTimer=setTimeout(()=>{syncCandidates();syncExitStatusesToServer(force||firstForcePending)},delay)}
+function installMutationHook(){if(mutationHookInstalled||typeof window.afterMutation!=='function')return false;const original=window.afterMutation;window.afterMutation=async function(...args){const result=await original.apply(this,args);queueSync(25,true);setTimeout(()=>{syncCandidates();syncExitStatusesToServer(true)},450);return result};mutationHookInstalled=true;return true}
 
-const observer=new MutationObserver(()=>queueSync(80));if(document.documentElement)observer.observe(document.documentElement,{childList:true,subtree:true});
-document.addEventListener('click',e=>{if(e.target?.closest('#pnAspelMonitorNav,#pnAspelRefresh'))queueSync(180)},true);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)queueSync(80)});window.addEventListener('online',()=>queueSync(100));
-setInterval(()=>{installMutationHook();syncCandidates();syncExitStatusesToServer(false)},2500);
-installMutationHook();queueSync(250);
+window.pnForceAspelStatusSync=()=>syncExitStatusesToServer(true);
+const observer=new MutationObserver(()=>queueSync(100,false));if(document.documentElement)observer.observe(document.documentElement,{childList:true,subtree:true});
+document.addEventListener('click',e=>{
+  if(e.target?.closest('#pnAspelMonitorNav,#pnAspelRefresh'))queueSync(180,true);
+  const btn=e.target?.closest('button');
+  if(btn&&/SIMPAN|UBAH|HAPUS/i.test(clean(btn.textContent)))setTimeout(()=>queueSync(80,true),900);
+},true);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)queueSync(80,true)});
+window.addEventListener('online',()=>queueSync(100,true));
+window.addEventListener('pn:database-panel-open',()=>queueSync(500,true));
+window.addEventListener('pn:admin-open',()=>queueSync(900,true));
+setInterval(()=>{installMutationHook();syncCandidates();syncExitStatusesToServer(firstForcePending)},2500);
+installMutationHook();
+queueSync(350,true);
+setTimeout(()=>syncExitStatusesToServer(true),1400);
 })();
