@@ -38,7 +38,7 @@ function jsonp(action,payload={},timeoutMs=15000){
     const cb='pnKeepaliveCb_'+Date.now()+'_'+Math.random().toString(36).slice(2).replace(/[^a-z0-9_]/gi,'');
     const script=document.createElement('script');
     let done=false;
-    const cleanup=()=>{clearTimeout(timerId);try{delete window[cb]}catch(_){window[cb]=undefined}script.remove()};
+    const cleanup=()=>{clearTimeout(timerId);try{delete window[cb]}catch(_){}script.remove()};
     window[cb]=data=>{if(done)return;done=true;cleanup();resolve(data||{})};
     const qs=new URLSearchParams({action,callback:cb,_:String(Date.now())});
     Object.entries(payload).forEach(([k,v])=>qs.set(k,String(v??'')));
@@ -85,7 +85,7 @@ function loadAspelInputStatusSync(){
   if(window.__pnAspelInputStatusSyncV3||document.getElementById('pnAspelInputStatusSyncV3'))return;
   const script=document.createElement('script');
   script.id='pnAspelInputStatusSyncV3';
-  script.src='js/aspel-input-status-sync-v3.js?v=20260823-1255';
+  script.src='js/aspel-input-status-sync-v3.js?v=20260823-1305';
   script.async=true;
   document.head.appendChild(script);
 }
