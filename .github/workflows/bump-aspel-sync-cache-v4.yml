@@ -1,0 +1,47 @@
+name: Bump Aspel Sync Cache V4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bump-aspel-sync-cache-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pasang loader sinkron status langsung di halaman utama
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          t=p.read_text(encoding='utf-8')
+          old='<script src="js/admin-session-keepalive-v1.js?v=1"></script>'
+          new='<script src="js/admin-session-keepalive-v1.js?v=2"></script>\n<script src="js/aspel-input-status-sync-v3.js?v=20260823-1305"></script>'
+          if new not in t:
+              if old not in t:
+                  raise SystemExit('Loader admin-session tidak ditemukan')
+              t=t.replace(old,new,1)
+          p.write_text(t,encoding='utf-8')
+          PY
+
+      - name: Commit perubahan
+        run: |
+          if git diff --quiet -- index.html; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Muat langsung sinkron status Koordinator Aspel"
+          git push
