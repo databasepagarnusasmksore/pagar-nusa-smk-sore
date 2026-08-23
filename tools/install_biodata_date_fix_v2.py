@@ -72,17 +72,47 @@ if "aspelMonitorVersion:'2'" in s:
     s=s.replace("aspelMonitorVersion:'2'","aspelMonitorVersion:'3'",1)
 p.write_text(s,encoding='utf-8')
 
-# Paksa browser mengambil renderer akun Koordinator terbaru.
+# Portal anggota/Koordinator: refresh ulang biodata + relasi Aspel secara otomatis
+# saat halaman kembali aktif dan berkala, sehingga status terbaru langsung muncul.
 p=Path('biodata.html')
 s=p.read_text(encoding='utf-8')
-s=re.sub(r'js/biodata-date-display-fix-v2\.js\?v=\d+','js/biodata-date-display-fix-v2.js?v=4',s)
+refresh_marker='function loginErrorText(e){'
+refresh_code=r'''let pnPortalLiveRefreshBusy=false;
+async function pnRefreshPortalLive(){
+  if(pnPortalLiveRefreshBusy||!user||!currentUsername||document.hidden)return false;
+  if($('portalView')?.classList.contains('hidden'))return false;
+  if(!$('saveBtn')?.classList.contains('hidden'))return false;
+  pnPortalLiveRefreshBusy=true;
+  try{
+    const token=await user.getIdToken(false);
+    const r=await request('biodataGet',{username:currentUsername,memberId:currentMemberId,idToken:token});
+    if(r?.biodata){
+      render(r.biodata);
+      $('studentName').textContent=r.biodata?.name||'Anggota';
+    }
+    if(r?.ukt)renderUkt(r.ukt);
+    return true;
+  }catch(err){
+    console.warn('Refresh portal anggota:',err);
+    return false;
+  }finally{pnPortalLiveRefreshBusy=false}
+}
+window.addEventListener('focus',()=>setTimeout(pnRefreshPortalLive,250));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(pnRefreshPortalLive,250)});
+setInterval(pnRefreshPortalLive,20000);
+'''
+if 'async function pnRefreshPortalLive()' not in s:
+    if refresh_marker not in s:
+        raise SystemExit('Marker loginErrorText tidak ditemukan pada biodata.html')
+    s=s.replace(refresh_marker,refresh_code+refresh_marker,1)
+s=re.sub(r'js/biodata-date-display-fix-v2\.js\?v=\d+','js/biodata-date-display-fix-v2.js?v=5',s)
 p.write_text(s,encoding='utf-8')
 
-# Paksa halaman admin mengambil modul sinkron terbaru.
+# Paksa halaman admin mengambil modul force-sync terbaru.
 for file in ['index.html','js/admin-session-keepalive-v1.js']:
     p=Path(file)
     s=p.read_text(encoding='utf-8')
-    s=re.sub(r'js/aspel-input-status-sync-v3\.js\?v=[0-9-]+','js/aspel-input-status-sync-v3.js?v=20260823-1325',s)
+    s=re.sub(r'js/aspel-input-status-sync-v3\.js\?v=[0-9-]+','js/aspel-input-status-sync-v3.js?v=20260823-1335',s)
     p.write_text(s,encoding='utf-8')
 
-print('Sinkron status Keluar/Nonaktif akun Koordinator siap diaktifkan')
+print('Force sync Keluar/Nonaktif dan auto-refresh portal Koordinator siap diaktifkan')
