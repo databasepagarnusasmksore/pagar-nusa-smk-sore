@@ -85,7 +85,7 @@ function loadAspelInputStatusSync(){
   if(window.__pnAspelInputStatusSyncV3||document.getElementById('pnAspelInputStatusSyncV3'))return;
   const script=document.createElement('script');
   script.id='pnAspelInputStatusSyncV3';
-  script.src='js/aspel-input-status-sync-v3.js?v=20260823-1305';
+  script.src='js/aspel-input-status-sync-v3.js?v=20260823-1325';
   script.async=true;
   document.head.appendChild(script);
 }
