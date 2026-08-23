@@ -278,7 +278,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 (()=>{
   if(document.querySelector('script[data-pn-aspel-monitor]'))return;
   const script=document.createElement('script');
-  script.src='js/aspel-monitor-v1.js?v=2';
+  script.src='js/aspel-monitor-v1.js?v=3';
   script.async=false;
   script.dataset.pnAspelMonitor='1';
   document.head.appendChild(script);

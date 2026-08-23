@@ -99,7 +99,7 @@ function doGet(e) {
       pdfWatermark:true,
       pdfWatermarkVersion:'1',
       aspelMonitor:true,
-      aspelMonitorVersion:'1',
+      aspelMonitorVersion:'2',
       accountAdminPortal:true,
       accountAdminPortalVersion:'4',
       adminPassword:true,
@@ -2020,7 +2020,17 @@ function aspelMonitorAdminList_(data) {
     if (!candidateName || !coordinatorName) return;
 
     const membershipStatus = aspelMonitorNormalize_(row[14]);
-    if (membershipStatus !== 'CALON ANGGOTA') {
+    const isCandidateOrMember =
+      membershipStatus === 'CALON ANGGOTA' ||
+      membershipStatus === 'AKTIF' ||
+      membershipStatus === 'ANGGOTA' ||
+      membershipStatus.indexOf('ANGGOTA ') === 0;
+    const isInactiveOrExit =
+      membershipStatus.indexOf('NONAKTIF') !== -1 ||
+      membershipStatus.indexOf('NON AKTIF') !== -1 ||
+      membershipStatus.indexOf('TIDAK AKTIF') !== -1 ||
+      membershipStatus.indexOf('KELUAR') !== -1;
+    if (!isCandidateOrMember && !isInactiveOrExit) {
       ignoredNonCandidateCount += 1;
       return;
     }
@@ -2117,7 +2127,7 @@ function aspelMonitorAdminList_(data) {
       ignoredNonCandidateCount:ignoredNonCandidateCount
     },
     coordinators:coordinators,
-    version:'1'
+    version:'2'
   };
 }
 
