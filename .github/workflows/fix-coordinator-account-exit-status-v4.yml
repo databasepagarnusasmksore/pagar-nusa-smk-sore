@@ -1,0 +1,352 @@
+name: Fix Coordinator Account Exit Status V4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-coordinator-account-exit-status-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sambungkan status Input Data ke akun Koordinator
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          # 1) Backend utama: endpoint admin untuk menyinkronkan Status Keanggotaan
+          #    ke Google Sheet Biodata yang dibaca akun Koordinator.
+          p=Path('backend/Code.gs')
+          s=p.read_text(encoding='utf-8')
+
+          route_marker="  if (action === 'portalAccountAdminList') {\n"
+          route="""  if (action === 'aspelStatusAdminSync') {
+    let result;
+    try {
+      result = aspelStatusAdminSync_(data);
+    } catch (err) {
+      result = {ok:false, message:String(err && err.message || err)};
+    }
+    result.rid = String(data.rid || '');
+    if (data.callback) return jsonp_(result, data.callback);
+    return json_(result);
+  }
+
+"""
+          if "action === 'aspelStatusAdminSync'" not in s:
+              if route_marker not in s:
+                  raise SystemExit('Marker route portalAccountAdminList tidak ditemukan')
+              s=s.replace(route_marker,route+route_marker,1)
+
+          func_marker='function aspelMonitorAdminList_(data) {'
+          fn=r'''function aspelStatusAdminSync_(data) {
+  const admin = requireReviewAdmin_(data.token);
+  const memberId = String(data.memberId || '').trim();
+  const name = String(data.name || '').trim();
+  const membershipStatus = sanitize_(String(data.membershipStatus || '').trim()).slice(0,80);
+  const studentStatus = sanitize_(String(data.studentStatus || '').trim()).slice(0,80);
+
+  if (!memberId && !name) throw new Error('ID atau nama anggota wajib tersedia.');
+  if (!membershipStatus) throw new Error('Status keanggotaan wajib tersedia.');
+
+  const book = SpreadsheetApp.openById(PN_BIODATA_SPREADSHEET_ID);
+  const sheet = book.getSheetByName(PN_BIODATA_SHEET_NAME);
+  if (!sheet) throw new Error('Sheet Data Biodata Siswa Anggota tidak ditemukan.');
+
+  const last = sheet.getLastRow();
+  if (last < 2) throw new Error('Data Biodata Siswa Anggota masih kosong.');
+
+  const rows = sheet.getRange(2,1,last-1,2).getDisplayValues();
+  const targetId = memberId.toLowerCase();
+  const targetName = normalizeAspelName_(name);
+  let foundRow = 0;
+
+  for (let i=0; i<rows.length; i++) {
+    const rowId = String(rows[i][0] || '').trim().toLowerCase();
+    if (targetId && rowId === targetId) {
+      foundRow = i + 2;
+      break;
+    }
+  }
+
+  if (!foundRow && targetName) {
+    for (let i=0; i<rows.length; i++) {
+      if (normalizeAspelName_(rows[i][1]) === targetName) {
+        foundRow = i + 2;
+        break;
+      }
+    }
+  }
+
+  if (!foundRow) throw new Error('Anggota tidak ditemukan pada database Biodata.');
+
+  const beforeStatus = String(sheet.getRange(foundRow,15).getDisplayValue() || '').trim();
+  const beforeStudent = String(sheet.getRange(foundRow,16).getDisplayValue() || '').trim();
+  sheet.getRange(foundRow,15).setValue(membershipStatus);
+  if (studentStatus) sheet.getRange(foundRow,16).setValue(studentStatus);
+
+  const logSheet = book.getSheetByName(PN_BIODATA_LOG_SHEET_NAME);
+  if (logSheet && beforeStatus !== membershipStatus) {
+    logSheet.appendRow([
+      new Date(),
+      String(sheet.getRange(foundRow,1).getDisplayValue() || memberId),
+      'ADMIN INPUT DATA',
+      '',
+      admin,
+      'Status Keanggotaan',
+      beforeStatus,
+      membershipStatus
+    ]);
+  }
+
+  return {
+    ok:true,
+    memberId:String(sheet.getRange(foundRow,1).getDisplayValue() || memberId),
+    name:String(sheet.getRange(foundRow,2).getDisplayValue() || name),
+    membershipStatus:membershipStatus,
+    studentStatus:studentStatus || beforeStudent,
+    message:'Status Biodata berhasil disinkronkan ke akun Koordinator.'
+  };
+}
+
+'''
+          if 'function aspelStatusAdminSync_(data)' not in s:
+              if func_marker not in s:
+                  raise SystemExit('Marker aspelMonitorAdminList_ tidak ditemukan')
+              s=s.replace(func_marker,fn+func_marker,1)
+
+          s=s.replace("aspelMonitorVersion:'2'", "aspelMonitorVersion:'3'", 1)
+          p.write_text(s,encoding='utf-8')
+
+          # 2) Sinkron dari MENU INPUT DATA. Data Keluar menimpa status Data Siswa.
+          sync_js=r'''(()=>{
+'use strict';
+
+if(window.__pnAspelInputStatusSyncV4)return;
+window.__pnAspelInputStatusSyncV4=true;
+
+const PANEL_ID='pnAspelMonitorPanel';
+const ENDPOINT='https://script.google.com/macros/s/AKfycbyJi_83lJ11JshOLCzIBRMX6fEi-y9UGR9eYULuqH1BivdxeqcgMB0l2ehWBIgaad8Oyw/exec';
+const TOKEN_KEY='pnReviewAdminToken';
+const EXIT_SYNC_KEY='pnAspelExitStatusSyncV4';
+let syncTimer=0;
+let serverSyncBusy=false;
+
+const clean=v=>String(v??'').trim();
+const keyName=v=>clean(v).toLowerCase().replace(/\s+/g,' ');
+const personKey=(id,name)=>clean(id).toUpperCase()||('NAME:'+keyName(name));
+const savedValue=key=>{try{return localStorage.getItem(key)||sessionStorage.getItem(key)||''}catch(_){return''}};
+
+function jsonp(action,payload={},timeoutMs=18000){
+  return new Promise((resolve,reject)=>{
+    const cb='pnAspelStatusCb_'+Date.now()+'_'+Math.random().toString(36).slice(2).replace(/[^a-z0-9_]/gi,'');
+    const script=document.createElement('script');
+    let done=false;
+    const cleanup=()=>{clearTimeout(timer);try{delete window[cb]}catch(_){}script.remove()};
+    window[cb]=data=>{if(done)return;done=true;cleanup();data&&data.ok?resolve(data):reject(new Error(data?.message||'Sinkron status ditolak server.'))};
+    const qs=new URLSearchParams({action,callback:cb,_:String(Date.now())});
+    Object.entries(payload).forEach(([k,v])=>qs.set(k,String(v??'')));
+    script.src=ENDPOINT+'?'+qs.toString();script.async=true;
+    script.onerror=()=>{if(done)return;done=true;cleanup();reject(new Error('Jaringan sinkron status bermasalah.'))};
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('Sinkron status terlalu lama.'))},timeoutMs);
+    document.head.appendChild(script);
+  });
+}
+
+function putStatus(index,id,name,status,studentStatus='',source=''){
+  status=clean(status);if(!status)return;
+  const item={id:clean(id),name:clean(name),status,studentStatus:clean(studentStatus),source:clean(source)};
+  const idKey=clean(id).toUpperCase();const nameKey=keyName(name);
+  if(idKey)index.byId.set(idKey,item);if(nameKey)index.byName.set(nameKey,item);
+}
+
+function liveStatusIndex(){
+  const index={byId:new Map(),byName:new Map()};
+  try{if(typeof students!=='undefined'&&Array.isArray(students))students.forEach(p=>{if(p)putStatus(index,p.id,p.name,p.memberStatus,p.studentStatus,'Data Siswa')})}catch(_){}
+  try{
+    if(typeof docs!=='undefined'&&docs&&docs['Data Keluar']&&typeof cellText==='function'&&typeof cellMaps!=='undefined'&&cellMaps?.['Data Keluar']){
+      for(let row=6;row<=300;row++){
+        const id=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'D'+row));
+        const name=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'E'+row));
+        const finalStatus=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'G'+row));
+        if((!id&&!name)||!finalStatus)continue;
+        const n=keyName(finalStatus);
+        if(!(n.includes('keluar')||n.includes('nonaktif')||n.includes('non aktif')||n.includes('tidak aktif')))continue;
+        putStatus(index,id,name,finalStatus,'','MENU INPUT DATA • Data Keluar');
+      }
+    }
+  }catch(_){}
+  return index;
+}
+
+function exitStatusMap(){
+  const map={};
+  try{
+    if(typeof docs!=='undefined'&&docs&&docs['Data Keluar']&&typeof cellText==='function'&&typeof cellMaps!=='undefined'&&cellMaps?.['Data Keluar']){
+      for(let row=6;row<=300;row++){
+        const id=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'D'+row));
+        const name=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'E'+row));
+        const status=clean(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'G'+row));
+        const n=keyName(status);if((!id&&!name)||!(n.includes('keluar')||n.includes('nonaktif')||n.includes('non aktif')||n.includes('tidak aktif')))continue;
+        map[personKey(id,name)]={id,name,status};
+      }
+    }
+  }catch(_){}
+  return map;
+}
+
+function readPreviousMap(){try{return JSON.parse(localStorage.getItem(EXIT_SYNC_KEY)||'{}')||{}}catch(_){return{}}}
+function savePreviousMap(map){try{localStorage.setItem(EXIT_SYNC_KEY,JSON.stringify(map))}catch(_){}}
+
+async function pushOne(item){
+  const token=savedValue(TOKEN_KEY);if(!token||!item)return false;
+  const index=liveStatusIndex();
+  const live=(clean(item.id)&&index.byId.get(clean(item.id).toUpperCase()))||(keyName(item.name)&&index.byName.get(keyName(item.name)))||item;
+  await jsonp('aspelStatusAdminSync',{token,memberId:live.id||item.id,name:live.name||item.name,membershipStatus:live.status||item.status,studentStatus:live.studentStatus||''},18000);
+  return true;
+}
+
+async function syncExitStatusesToServer(force=false){
+  if(serverSyncBusy)return;
+  const token=savedValue(TOKEN_KEY);if(!token)return;
+  const current=exitStatusMap();const previous=readPreviousMap();
+  const changes=[];
+  Object.entries(current).forEach(([key,item])=>{if(force||!previous[key]||previous[key].status!==item.status)changes.push(item)});
+  Object.entries(previous).forEach(([key,item])=>{
+    if(current[key])return;
+    const index=liveStatusIndex();
+    const live=(clean(item.id)&&index.byId.get(clean(item.id).toUpperCase()))||(keyName(item.name)&&index.byName.get(keyName(item.name)));
+    if(live)changes.push(live);
+  });
+  if(!changes.length)return;
+  serverSyncBusy=true;
+  try{
+    for(const item of changes){try{await pushOne(item)}catch(err){console.warn('Sinkron status Aspel:',err)}}
+    savePreviousMap(current);
+  }finally{serverSyncBusy=false}
+}
+
+function statusFor(index,id,name){const idKey=clean(id).toUpperCase();const nameKey=keyName(name);return(idKey&&index.byId.get(idKey))||(nameKey&&index.byName.get(nameKey))||null}
+function candidateIdentity(card){const name=clean(card.querySelector('.pnAspelCandidateName')?.textContent);const meta=clean(card.querySelector('.pnAspelCandidateMeta')?.textContent);const first=clean(meta.split('•')[0]);const id=/^(PN-|PGR-|[A-Z]{2,}-?\d|\d{6,})/i.test(first)?first:'';return{id,name}}
+function setBadge(card,item){
+  if(!item)return false;let badge=card.querySelector('.pnAspelBadge');if(!badge){badge=document.createElement('span');badge.className='pnAspelBadge';card.appendChild(badge)}
+  const normalized=keyName(item.status);const targetClass=normalized.includes('keluar')?'keluar':(normalized.includes('nonaktif')||normalized.includes('non aktif')||normalized.includes('tidak aktif')?'nonaktif':'');
+  badge.textContent=item.status;badge.classList.remove('aktif','nonaktif','keluar');if(targetClass)badge.classList.add(targetClass);badge.title='STATUS TERBARU otomatis dari '+(item.source||'MENU INPUT DATA');card.dataset.pnInputStatus=item.status;return true;
+}
+function syncCandidates(){
+  const panel=document.getElementById(PANEL_ID);if(!panel)return 0;const index=liveStatusIndex();let changed=0;
+  panel.querySelectorAll('.pnAspelCandidate').forEach(card=>{const who=candidateIdentity(card);const item=statusFor(index,who.id,who.name);if(item&&setBadge(card,item))changed++});
+  const source=panel.querySelector('.pnAspelSource');if(source)source.textContent='SUMBER: BIODATA + MENU INPUT DATA';
+  return changed;
+}
+function queueSync(delay=40){clearTimeout(syncTimer);syncTimer=setTimeout(()=>{syncCandidates();syncExitStatusesToServer(false)},delay)}
+
+['saveRecord','updateRecord','deleteRecord'].forEach(name=>{
+  const original=window[name];if(typeof original!=='function'||original.__pnAspelWrapped)return;
+  const wrapped=async function(...args){const out=await original.apply(this,args);setTimeout(()=>{syncCandidates();syncExitStatusesToServer(false)},120);return out};
+  wrapped.__pnAspelWrapped=true;window[name]=wrapped;
+});
+
+const observer=new MutationObserver(()=>queueSync(50));if(document.documentElement)observer.observe(document.documentElement,{childList:true,subtree:true});
+document.addEventListener('click',e=>{if(e.target?.closest('#pnAspelMonitorNav,#pnAspelRefresh'))queueSync(180)},true);
+setInterval(()=>{syncCandidates();syncExitStatusesToServer(false)},2500);
+queueSync(200);
+})();
+'''
+          Path('js/aspel-input-status-sync-v3.js').write_text(sync_js,encoding='utf-8')
+
+          # 3) Akun Koordinator: tampilkan status sebenarnya, bukan selalu "Calon Anggota N".
+          p=Path('js/biodata-date-display-fix-v2.js')
+          s=p.read_text(encoding='utf-8')
+          css_old='.aspelMemberTop{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.aspelMemberName{font-size:12px;font-weight:900;color:#14532d;line-height:1.35}.aspelMemberRole{flex:0 0 auto;padding:3px 7px;border-radius:999px;background:#e0f2fe;color:#075985;font-size:8px;font-weight:900;text-align:center}'
+          css_new=css_old+'.aspelMemberRole.keluar{background:#fee2e2;color:#b91c1c;border:1px solid #fecaca}.aspelMemberRole.nonaktif{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1}.aspelMemberRole.aktif{background:#dcfce7;color:#166534;border:1px solid #bbf7d0}.aspelMemberCard.keluar{background:#fff7f7;border-color:#fecaca}.aspelMemberCard.nonaktif{background:#f8fafc;border-color:#cbd5e1}.aspelLatestStatus{margin-top:7px;font-size:9px;font-weight:900}.aspelLatestStatus.keluar{color:#b91c1c}.aspelLatestStatus.nonaktif{color:#475569}'
+          if '.aspelMemberRole.keluar' not in s:
+              if css_old not in s: raise SystemExit('CSS Aspel akun koordinator tidak ditemukan')
+              s=s.replace(css_old,css_new,1)
+
+          old="""  summary.innerHTML=`
+    <strong>${members.length} calon anggota terhubung dengan tugas Aspel Anda</strong>
+    <span class=\"aspelRoleList\"><span class=\"aspelRolePill\">${members.length} Calon Anggota</span></span>`;
+
+  list.innerHTML=members.map((m,index)=>{
+    const classProgram=[m.className,m.program].filter(Boolean).join(' · ');
+    const meta=[m.memberId,classProgram,m.entryYear?`Masuk ${m.entryYear}`:''].filter(Boolean).join(' · ');
+    const pendamping=[m.member1,m.member2].filter(Boolean).join(' / ')||'-';
+    return `<div class=\"aspelMemberCard\">
+      <div class=\"aspelMemberTop\">
+        <div><div class=\"aspelMemberName\">${esc(m.name)}</div><div class=\"aspelMemberMeta\">${esc(meta)}</div></div>
+        <span class=\"aspelMemberRole\">Calon Anggota ${index+1}</span>
+      </div>
+      <div class=\"aspelTeam\"><b>Koordinator:</b> ${esc(m.coordinator||'-')}<br><b>Anggota Aspel:</b> ${esc(pendamping)}</div>
+    </div>`;
+  }).join('');
+"""
+          new="""  const statusKind=value=>{const x=String(value||'').trim().toLowerCase().replace(/\\s+/g,' ');if(x.includes('keluar'))return'keluar';if(x.includes('nonaktif')||x.includes('non aktif')||x.includes('tidak aktif'))return'nonaktif';if(x.includes('aktif')||x==='anggota')return'aktif';return'';};
+  const counts={keluar:0,nonaktif:0,aktif:0,calon:0};
+  members.forEach(m=>{const k=statusKind(m.membershipStatus);if(k==='keluar')counts.keluar++;else if(k==='nonaktif')counts.nonaktif++;else if(k==='aktif')counts.aktif++;else counts.calon++;});
+  const pills=[];
+  if(counts.calon)pills.push(`<span class=\"aspelRolePill\">${counts.calon} Calon Anggota</span>`);
+  if(counts.aktif)pills.push(`<span class=\"aspelRolePill\">${counts.aktif} Anggota Aktif</span>`);
+  if(counts.nonaktif)pills.push(`<span class=\"aspelRolePill\" style=\"background:#64748b\">${counts.nonaktif} Nonaktif</span>`);
+  if(counts.keluar)pills.push(`<span class=\"aspelRolePill\" style=\"background:#b91c1c\">${counts.keluar} Keluar</span>`);
+  summary.innerHTML=`<strong>${members.length} data dampingan terhubung dengan tugas Aspel Anda</strong><span class=\"aspelRoleList\">${pills.join('')}</span>`;
+
+  list.innerHTML=members.map((m,index)=>{
+    const classProgram=[m.className,m.program].filter(Boolean).join(' · ');
+    const meta=[m.memberId,classProgram,m.entryYear?`Masuk ${m.entryYear}`:''].filter(Boolean).join(' · ');
+    const pendamping=[m.member1,m.member2].filter(Boolean).join(' / ')||'-';
+    const status=String(m.membershipStatus||'Calon Anggota').trim()||'Calon Anggota';
+    const kind=statusKind(status);
+    const badge=(kind==='keluar'?'KELUAR':kind==='nonaktif'?'NONAKTIF':kind==='aktif'?status:`Calon Anggota ${index+1}`);
+    const latest=(kind==='keluar'||kind==='nonaktif')?`<div class=\"aspelLatestStatus ${kind}\">STATUS TERBARU: ${esc(status.toUpperCase())}</div>`:'';
+    return `<div class=\"aspelMemberCard ${kind}\">
+      <div class=\"aspelMemberTop\">
+        <div><div class=\"aspelMemberName\">${esc(m.name)}</div><div class=\"aspelMemberMeta\">${esc(meta)}</div>${latest}</div>
+        <span class=\"aspelMemberRole ${kind}\">${esc(badge)}</span>
+      </div>
+      <div class=\"aspelTeam\"><b>Koordinator:</b> ${esc(m.coordinator||'-')}<br><b>Anggota Aspel:</b> ${esc(pendamping)}</div>
+    </div>`;
+  }).join('');
+"""
+          if 'STATUS TERBARU:' not in s:
+              if old not in s: raise SystemExit('Renderer Aspel akun koordinator tidak ditemukan')
+              s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          # Bump cache halaman biodata dan halaman admin.
+          p=Path('biodata.html'); s=p.read_text(encoding='utf-8')
+          s=re.sub(r'js/biodata-date-display-fix-v2\.js\?v=\d+', 'js/biodata-date-display-fix-v2.js?v=4', s)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('index.html'); s=p.read_text(encoding='utf-8')
+          s=s.replace('js/aspel-input-status-sync-v3.js?v=20260823-1305','js/aspel-input-status-sync-v3.js?v=20260823-1315')
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('js/admin-session-keepalive-v1.js'); s=p.read_text(encoding='utf-8')
+          s=s.replace('js/aspel-input-status-sync-v3.js?v=20260823-1305','js/aspel-input-status-sync-v3.js?v=20260823-1315')
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Commit hasil perbaikan
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'Tidak ada perubahan.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add backend/Code.gs js/aspel-input-status-sync-v3.js js/biodata-date-display-fix-v2.js biodata.html index.html js/admin-session-keepalive-v1.js
+          git commit -m 'Sinkronkan Keluar Nonaktif ke akun Koordinator Aspel'
+          git push
