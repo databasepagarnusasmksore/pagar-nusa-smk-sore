@@ -75,14 +75,22 @@ function setBadge(card,item){
     badge.className='pnAspelBadge';
     card.appendChild(badge);
   }
+
   const normalized=keyName(item.status);
-  badge.textContent=item.status;
-  badge.classList.remove('aktif','nonaktif','keluar');
-  if(normalized.includes('keluar'))badge.classList.add('keluar');
-  else if(normalized.includes('nonaktif')||normalized.includes('non aktif')||normalized.includes('tidak aktif'))badge.classList.add('nonaktif');
-  badge.title='Status otomatis dari '+(item.source||'MENU INPUT DATA');
-  card.dataset.pnInputStatus=item.status;
-  return true;
+  const targetClass=normalized.includes('keluar')?'keluar':(
+    normalized.includes('nonaktif')||normalized.includes('non aktif')||normalized.includes('tidak aktif')?'nonaktif':''
+  );
+  let changed=false;
+
+  if(clean(badge.textContent)!==item.status){badge.textContent=item.status;changed=true}
+  ['aktif','nonaktif','keluar'].forEach(cls=>{
+    const shouldHave=cls===targetClass;
+    if(badge.classList.contains(cls)!==shouldHave){badge.classList.toggle(cls,shouldHave);changed=true}
+  });
+  const title='Status otomatis dari '+(item.source||'MENU INPUT DATA');
+  if(badge.title!==title){badge.title=title;changed=true}
+  if(card.dataset.pnInputStatus!==item.status){card.dataset.pnInputStatus=item.status;changed=true}
+  return changed;
 }
 
 function syncCandidates(){
@@ -97,9 +105,11 @@ function syncCandidates(){
   });
 
   const source=panel.querySelector('.pnAspelSource');
-  if(source)source.textContent='SUMBER: BIODATA + MENU INPUT DATA';
+  const sourceText='SUMBER: BIODATA + MENU INPUT DATA';
+  if(source&&clean(source.textContent)!==sourceText)source.textContent=sourceText;
   const desc=panel.querySelector('.pnAspelHead p');
-  if(desc)desc.textContent='Relasi Koordinator dari Portal Biodata Siswa. Status Keluar/Nonaktif disinkronkan otomatis dari MENU INPUT DATA tanpa menghapus riwayat pendampingan.';
+  const descText='Relasi Koordinator dari Portal Biodata Siswa. Status Keluar/Nonaktif disinkronkan otomatis dari MENU INPUT DATA tanpa menghapus riwayat pendampingan.';
+  if(desc&&clean(desc.textContent)!==descText)desc.textContent=descText;
   return changed;
 }
 
