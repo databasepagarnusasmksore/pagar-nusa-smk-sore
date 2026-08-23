@@ -1,4 +1,4 @@
-name: Aktifkan status Nonaktif Keluar Koordinator Aspel v2
+name: Aktifkan sinkron status Input Data Koordinator Aspel v3
 
 on:
   push:
@@ -18,160 +18,138 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Revisi status pada pemantauan Koordinator Aspel
+      - name: Sinkronkan status MENU INPUT DATA ke monitor Aspel
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(text, old, new, label):
-              if old not in text:
-                  raise SystemExit(f'Marker tidak ditemukan: {label}')
-              return text.replace(old, new, 1)
+          path = Path('js/aspel-monitor-v1.js')
+          text = path.read_text(encoding='utf-8')
 
-          # Backend: pertahankan relasi Aspel untuk Calon/Anggota/Nonaktif/Keluar.
-          backend = Path('backend/Code.gs')
-          text = backend.read_text(encoding='utf-8')
-          old = """    const membershipStatus = aspelMonitorNormalize_(row[14]);
-              if (membershipStatus !== 'CALON ANGGOTA') {
-                ignoredNonCandidateCount += 1;
-                return;
-              }
-          """
-          new = """    const membershipStatus = aspelMonitorNormalize_(row[14]);
-              const isCandidateOrMember =
-                membershipStatus === 'CALON ANGGOTA' ||
-                membershipStatus === 'AKTIF' ||
-                membershipStatus === 'ANGGOTA' ||
-                membershipStatus.indexOf('ANGGOTA ') === 0;
-              const isInactiveOrExit =
-                membershipStatus.indexOf('NONAKTIF') !== -1 ||
-                membershipStatus.indexOf('NON AKTIF') !== -1 ||
-                membershipStatus.indexOf('TIDAK AKTIF') !== -1 ||
-                membershipStatus.indexOf('KELUAR') !== -1;
-              if (!isCandidateOrMember && !isInactiveOrExit) {
-                ignoredNonCandidateCount += 1;
-                return;
-              }
-          """
-          text = replace_once(text, old, new, 'filter status Aspel backend')
-          if "aspelMonitorVersion:'1'" in text:
-              text = text.replace("aspelMonitorVersion:'1'", "aspelMonitorVersion:'2'", 1)
-          old_version = """    coordinators:coordinators,
-              version:'1'
-            };
-          """
-          new_version = """    coordinators:coordinators,
-              version:'2'
-            };
-          """
-          if old_version in text:
-              text = text.replace(old_version, new_version, 1)
-          backend.write_text(text, encoding='utf-8')
+          anchor = "const savedValue=key=>{try{return localStorage.getItem(key)||sessionStorage.getItem(key)||''}catch(_){return sessionStorage.getItem(key)||''}};\n"
+          helper = r'''
 
-          # Frontend monitor: badge status dan istilah "dampingan" agar status lama tetap jelas.
-          monitor = Path('js/aspel-monitor-v1.js')
-          text = monitor.read_text(encoding='utf-8')
+function workbookPersonKey(value){
+  return String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
+}
 
-          css_marker = ".pnAspelUnassigned{"
-          css_add = ".pnAspelBadge.nonaktif{background:#f1f5f9;color:#475569;border-color:#cbd5e1}.pnAspelBadge.keluar{background:#fef2f2;color:#b91c1c;border-color:#fecaca}.pnAspelBadge.aktif{background:#ecfdf3;color:#166534;border-color:#bbf7d0}.pnAspelUnassigned{"
-          text = replace_once(text, css_marker, css_add, 'CSS badge status')
+function workbookStatusIndex(){
+  const byId=new Map();
+  const byName=new Map();
+  const put=(id,name,membershipStatus,studentStatus,source)=>{
+    const item={membershipStatus:String(membershipStatus||'').trim(),studentStatus:String(studentStatus||'').trim(),source:String(source||'')};
+    const idKey=String(id||'').trim().toUpperCase();
+    const nameKey=workbookPersonKey(name);
+    if(idKey)byId.set(idKey,item);
+    if(nameKey)byName.set(nameKey,item);
+  };
 
-          person_block = """function personMeta(person){
-            if(!person)return'';
-            return [person.memberId,person.className,person.program,person.entryYear?('Masuk '+person.entryYear):'',person.membershipStatus,person.studentStatus].filter(Boolean).join(' • ');
-          }
+  try{
+    if(typeof students!=='undefined'&&Array.isArray(students)){
+      students.forEach(person=>{
+        if(!person)return;
+        put(person.id,person.name,person.memberStatus,person.studentStatus,'Data Siswa');
+      });
+    }
+  }catch(_){}
 
-          function renderCandidate(candidate){
-          """
-          person_new = """function personMeta(person){
-            if(!person)return'';
-            return [person.memberId,person.className,person.program,person.entryYear?('Masuk '+person.entryYear):'',person.membershipStatus,person.studentStatus].filter(Boolean).join(' • ');
-          }
+  try{
+    if(typeof docs!=='undefined'&&docs&&docs['Data Keluar']&&typeof cellText==='function'&&typeof cellMaps!=='undefined'){
+      for(let row=6;row<=300;row++){
+        const id=String(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'D'+row)||'').trim();
+        const name=String(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'E'+row)||'').trim();
+        const finalStatus=String(cellText(docs['Data Keluar'],cellMaps['Data Keluar'],'G'+row)||'').trim();
+        if((!id&&!name)||!finalStatus)continue;
+        const normalized=workbookPersonKey(finalStatus);
+        if(!(normalized.includes('keluar')||normalized.includes('nonaktif')||normalized.includes('non aktif')||normalized.includes('tidak aktif')))continue;
+        put(id,name,finalStatus,'','Data Keluar');
+      }
+    }
+  }catch(_){}
 
-          function statusClass(status){
-            const s=norm(status).replace(/\\s+/g,' ');
-            if(!s)return'';
-            if(s.includes('keluar'))return' keluar';
-            if(s.includes('nonaktif')||s.includes('non aktif')||s.includes('tidak aktif'))return' nonaktif';
-            if(s.includes('aktif')||s==='anggota')return' aktif';
-            return'';
-          }
+  return {byId,byName};
+}
 
-          function statusBadge(person,fallback=''){
-            const label=String(person?.membershipStatus||fallback||'').trim();
-            return label?`<span class="pnAspelBadge${statusClass(label)}">${esc(label)}</span>`:'';
-          }
+function applyWorkbookStatuses(data){
+  if(!data||!Array.isArray(data.coordinators))return data;
+  const index=workbookStatusIndex();
+  const patch=person=>{
+    if(!person)return;
+    const idKey=String(person.memberId||'').trim().toUpperCase();
+    const nameKey=workbookPersonKey(person.name);
+    const live=(idKey&&index.byId.get(idKey))||(nameKey&&index.byName.get(nameKey));
+    if(!live)return;
+    if(live.membershipStatus)person.membershipStatus=live.membershipStatus;
+    if(live.studentStatus)person.studentStatus=live.studentStatus;
+    person.statusSource=live.source;
+  };
 
-          function renderCandidate(candidate){
-          """
-          text = replace_once(text, person_block, person_new, 'helper badge status')
+  data.coordinators.forEach(coordinator=>{
+    patch(coordinator);
+    (coordinator.members||[]).forEach(member=>{
+      patch(member);
+      (member.candidates||[]).forEach(patch);
+    });
+    (coordinator.unassignedCandidates||[]).forEach(patch);
+  });
+  data.statusSource='Portal Biodata + MENU INPUT DATA';
+  return data;
+}
+'''
 
-          old_candidate = """  return `<div class=\"pnAspelCandidate\"><div><div class=\"pnAspelCandidateName\">${esc(candidate.name||'-')}</div><div class=\"pnAspelCandidateMeta\">${esc(personMeta(candidate)||'-')}</div></div><span class=\"pnAspelBadge\">${esc(candidate.membershipStatus||'Calon Anggota')}</span></div>`;
-          """
-          new_candidate = """  return `<div class=\"pnAspelCandidate\"><div><div class=\"pnAspelCandidateName\">${esc(candidate.name||'-')}</div><div class=\"pnAspelCandidateMeta\">${esc(personMeta(candidate)||'-')}</div></div>${statusBadge(candidate,'Calon Anggota')}</div>`;
-          """
-          text = replace_once(text, old_candidate, new_candidate, 'render calon/anggota dampingan')
+          if 'function applyWorkbookStatuses(data)' not in text:
+              if anchor not in text:
+                  raise SystemExit('Anchor savedValue tidak ditemukan')
+              text = text.replace(anchor, anchor + helper, 1)
 
-          old_member = """  return `<section class=\"pnAspelMember\"><div class=\"pnAspelMemberHead\"><div class=\"pnAspelMemberTitle\">ANGGOTA KOORDINATOR: ${esc(member.name||'-')} <span>• ${candidates.length} calon anggota</span></div><div class=\"pnAspelMeta\">${esc(personMeta(member)||'Profil anggota belum ditemukan pada biodata.')}</div></div><div class=\"pnAspelCandidateList\">${candidates.map(renderCandidate).join('')||'<div class=\"pnAspelEmpty\">Belum ada calon anggota yang didampingi.</div>'}</div></section>`;
-          """
-          new_member = """  return `<section class=\"pnAspelMember\"><div class=\"pnAspelMemberHead\"><div class=\"pnAspelMemberTitle\">ANGGOTA KOORDINATOR: ${esc(member.name||'-')} ${statusBadge(member)} <span>• ${candidates.length} dampingan</span></div><div class=\"pnAspelMeta\">${esc(personMeta(member)||'Profil anggota belum ditemukan pada biodata.')}</div></div><div class=\"pnAspelCandidateList\">${candidates.map(renderCandidate).join('')||'<div class=\"pnAspelEmpty\">Belum ada anggota/calon anggota yang didampingi.</div>'}</div></section>`;
-          """
-          text = replace_once(text, old_member, new_member, 'render anggota koordinator')
+          old_render = "function renderMonitor(){\n  const list=$('pnAspelList');"
+          new_render = "function renderMonitor(){\n  if(monitorData)applyWorkbookStatuses(monitorData);\n  const list=$('pnAspelList');"
+          if old_render in text:
+              text = text.replace(old_render, new_render, 1)
+          elif new_render not in text:
+              raise SystemExit('Anchor renderMonitor tidak ditemukan')
 
-          text = text.replace(
-              "const parts=[coordinator.name,coordinator.memberId,coordinator.className,coordinator.program];",
-              "const parts=[coordinator.name,coordinator.memberId,coordinator.className,coordinator.program,coordinator.membershipStatus,coordinator.studentStatus];",
-              1
-          )
-          text = text.replace(
-              "parts.push(member.name,member.memberId,member.className,member.program);",
-              "parts.push(member.name,member.memberId,member.className,member.program,member.membershipStatus,member.studentStatus);",
-              1
-          )
+          replacements = [
+              ('Data dibaca langsung dari Portal Biodata Siswa. Urutan pemantauan: Koordinator → Anggota Koordinator → Anggota/Calon Anggota yang Didampingi.',
+               'Relasi Koordinator dibaca dari Portal Biodata Siswa, sedangkan status terbaru disinkronkan otomatis dari MENU INPUT DATA (Data Siswa / Keluar-Nonaktif). Urutan: Koordinator → Anggota Koordinator → Anggota/Calon Anggota yang Didampingi.'),
+              ('SUMBER: PORTAL BIODATA SISWA','SUMBER: BIODATA + MENU INPUT DATA'),
+              ("setStatus('','Mengambil data terbaru dari Portal Biodata Siswa...');","setStatus('','Mengambil relasi Koordinator dan mencocokkan status terbaru dari MENU INPUT DATA...');"),
+              ("monitorData=await jsonp('aspelMonitorAdminList',{token},23000);\n        renderMonitor();",
+               "monitorData=await jsonp('aspelMonitorAdminList',{token},23000);\n        applyWorkbookStatuses(monitorData);\n        renderMonitor();"),
+              ("setStatus('ok',`Data berhasil dimuat • ${Number(monitorData.summary?.coordinatorCount||0)} koordinator • ${Number(monitorData.summary?.candidateCount||0)} data dampingan.`);",
+               "setStatus('ok',`Data berhasil dimuat • status MENU INPUT DATA tersinkron • ${Number(monitorData.summary?.coordinatorCount||0)} koordinator • ${Number(monitorData.summary?.candidateCount||0)} data dampingan.`);")
+          ]
+          for old,new in replacements:
+              if old in text:
+                  text=text.replace(old,new,1)
+          path.write_text(text,encoding='utf-8')
 
-          replacements = {
-              'Urutan pemantauan: Koordinator → Anggota Koordinator → Calon Anggota yang Didampingi.':'Urutan pemantauan: Koordinator → Anggota Koordinator → Anggota/Calon Anggota yang Didampingi.',
-              'Cari koordinator, anggota koordinator, atau calon anggota':'Cari koordinator, anggota koordinator, atau data dampingan',
-              'KOORDINATOR → ANGGOTA KOORDINATOR → CALON ANGGOTA YANG DIDAMPINGI':'KOORDINATOR → ANGGOTA KOORDINATOR → ANGGOTA/CALON ANGGOTA YANG DIDAMPINGI',
-              'Koordinator → anggota → calon anggota':'Koordinator → anggota → dampingan',
-              '<span>Calon Anggota</span>':'<span>Data Dampingan</span>',
-              '${unassigned.length} calon anggota':'${unassigned.length} dampingan',
-              '${Number(coordinator.memberCount||0)} anggota • ${Number(coordinator.candidateCount||0)} calon':'${Number(coordinator.memberCount||0)} anggota • ${Number(coordinator.candidateCount||0)} dampingan',
-              'Belum ada Anggota Koordinator pada calon anggota di bawah koordinator ini.':'Belum ada Anggota Koordinator pada data dampingan di bawah koordinator ini.',
-              '${ignored} relasi Aspel tidak ditampilkan karena Status Keanggotaan bukan “Calon Anggota”.':'${ignored} relasi Aspel tidak ditampilkan karena status berada di luar Calon/Anggota/Nonaktif/Keluar.',
-              '${Number(monitorData.summary?.coordinatorCount||0)} koordinator • ${Number(monitorData.summary?.candidateCount||0)} calon anggota.':'${Number(monitorData.summary?.coordinatorCount||0)} koordinator • ${Number(monitorData.summary?.candidateCount||0)} data dampingan.'
-          }
-          for a,b in replacements.items():
-              if a in text:
-                  text = text.replace(a,b,1)
+          compact=Path('js/admin-compact-v1.js')
+          ctext=compact.read_text(encoding='utf-8')
+          if 'js/aspel-monitor-v1.js?v=3' in ctext:
+              ctext=ctext.replace('js/aspel-monitor-v1.js?v=3','js/aspel-monitor-v1.js?v=4',1)
+          elif 'js/aspel-monitor-v1.js?v=4' not in ctext:
+              raise SystemExit('Versi loader Aspel tidak ditemukan')
+          compact.write_text(ctext,encoding='utf-8')
 
-          coord_name = "KOORDINATOR: ${esc(coordinator.name||'-')}</div>"
-          if coord_name in text:
-              text = text.replace(coord_name, "KOORDINATOR: ${esc(coordinator.name||'-')} ${statusBadge(coordinator)}</div>", 1)
-
-          monitor.write_text(text, encoding='utf-8')
-
-          # Cache bust supaya browser segera mengambil monitor terbaru.
-          compact = Path('js/admin-compact-v1.js')
-          text = compact.read_text(encoding='utf-8')
-          text = replace_once(text, "script.src='js/aspel-monitor-v1.js?v=2';", "script.src='js/aspel-monitor-v1.js?v=3';", 'cache Aspel monitor')
-          compact.write_text(text, encoding='utf-8')
-
-          index = Path('index.html')
-          text = index.read_text(encoding='utf-8')
-          text = replace_once(text, 'js/admin-compact-v1.js?v=11', 'js/admin-compact-v1.js?v=12', 'cache admin compact')
-          index.write_text(text, encoding='utf-8')
+          index=Path('index.html')
+          itext=index.read_text(encoding='utf-8')
+          if 'js/admin-compact-v1.js?v=12' in itext:
+              itext=itext.replace('js/admin-compact-v1.js?v=12','js/admin-compact-v1.js?v=13',1)
+          elif 'js/admin-compact-v1.js?v=13' not in itext:
+              raise SystemExit('Versi admin compact tidak ditemukan')
+          index.write_text(itext,encoding='utf-8')
           PY
 
       - name: Commit hasil revisi
         run: |
-          if git diff --quiet -- backend/Code.gs js/aspel-monitor-v1.js js/admin-compact-v1.js index.html; then
+          if git diff --quiet -- js/aspel-monitor-v1.js js/admin-compact-v1.js index.html; then
             echo "No changes"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/Code.gs js/aspel-monitor-v1.js js/admin-compact-v1.js index.html
-          git commit -m "Tampilkan status Nonaktif dan Keluar pada Koordinator Aspel"
+          git add js/aspel-monitor-v1.js js/admin-compact-v1.js index.html
+          git commit -m "Sinkronkan status Input Data ke Koordinator Aspel"
           git push
