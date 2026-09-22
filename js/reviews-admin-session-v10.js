@@ -164,6 +164,7 @@ async function loadRows({quiet=false}={}){
     online=true;
     const pending=stats();render();
     persistentSet(AUTH_KEY,'1');setState('online','✓ Database pusat terhubung permanen di perangkat ini • '+pending+' ulasan menunggu verifikasi.');
+    window.dispatchEvent(new CustomEvent('pn:admin-session-ready',{detail:{ok:true}}));
     updateConnectButton();
     return true;
   }catch(err){
