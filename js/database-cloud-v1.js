@@ -9,6 +9,7 @@ const PN_DB_LAST_SYNC_KEY='pnExcelCloudLastSyncV1';
 const PN_DB_MASTER_ID_KEY='pnExcelCloudMasterFileIdV1';
 const PN_DB_SYNC_DELAY=900;
 const PN_DB_DOWNLOAD_CONCURRENCY=4;
+const PN_DB_BACKGROUND_CHECK_MS=5*60*1000;
 
 let pnCloudBusy=false;
 let pnCloudLoaded=false;
@@ -19,6 +20,7 @@ let pnCloudSaveBusy=false;
 let pnCloudSaveTimer=0;
 let pnCloudSaveQueued=false;
 let pnCloudGeneration=0;
+let pnCloudLastBackgroundCheck=0;
 
 function pnDatabasePanelOpen(){
   const drawer=document.getElementById('dbDrawer');
@@ -619,7 +621,7 @@ window.afterMutation=async function(msg){
   setStatus('<b>'+esc(msg)+'</b>. Tersimpan di browser'+(p&&p.cloudWarning?', tetapi cloud belum aktif: '+esc(p.cloudWarning):'.'),'ok');
 };
 
-function pnMaybeLoadCloud(){
+function pnMaybeLoadCloud(force=false){
   if(!pnDatabasePanelOpen())return;
   const token=pnDbToken();
   if(!token||pnCloudBusy||pnCloudSaveBusy)return;
@@ -634,18 +636,25 @@ function pnMaybeLoadCloud(){
     return;
   }
 
+  // Database lokal harus sudah siap sebelum cek cloud.
+  if(!zipEntries)return;
+
+  const now=Date.now();
+  if(!force&&pnCloudLastBackgroundCheck&&now-pnCloudLastBackgroundCheck<PN_DB_BACKGROUND_CHECK_MS)return;
+  pnCloudLastBackgroundCheck=now;
+
   if(token===pnCloudLoadedToken&&pnCloudLoaded)return;
-  if(token===pnCloudCheckedToken&&!pnCloudLoaded)return;
+  if(token===pnCloudCheckedToken&&!pnCloudLoaded&&!force)return;
+  pnCloudStatus('LOCAL SIAP • CEK CLOUD');
   void pnRestoreCloudDatabase({quiet:true});
 }
 
 setTimeout(()=>pnRenderLastSync('idle'),120);
 setTimeout(()=>pnEnsureHistoryUi(),180);
 window.addEventListener('pn:database-panel-open',()=>{
-  pnCloudCheckedToken='';
-  setTimeout(pnMaybeLoadCloud,80);
+  setTimeout(()=>pnMaybeLoadCloud(false),60);
 });
-setInterval(()=>{if(pnDatabasePanelOpen())pnMaybeLoadCloud()},60000);
+setInterval(()=>{if(pnDatabasePanelOpen())pnMaybeLoadCloud(false)},PN_DB_BACKGROUND_CHECK_MS);
 window.addEventListener('online',()=>{
   pnCloudCheckedToken='';
   pnMaybeLoadCloud();
