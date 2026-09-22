@@ -100,12 +100,16 @@ function openAdminLogin(){
   return true
 }
 function closeAdminLogin(){document.getElementById('loginModal')?.classList.add('hidden')}
+window.__pnCanonicalAdminLoginV1=true;
 async function submitAdminLogin(ev){
   if(ev)ev.preventDefault();
   const u=document.getElementById('adminUser')?.value.trim()||'',p=document.getElementById('adminPass')?.value||'',err=document.getElementById('loginError');
   const hash=await sha256Hex(p);
   if(u===PN_ADMIN_USER&&hash===PN_ADMIN_PASS_HASH){
-    localStorage.setItem('pnAdminAuth','1');sessionStorage.setItem('pnAdminAuth','1');closeAdminLogin();enterAdmin(true)
+    localStorage.setItem('pnAdminAuth','1');sessionStorage.setItem('pnAdminAuth','1');
+    closeAdminLogin();enterAdmin(true);
+    try{window.dispatchEvent(new CustomEvent('pn:admin-authenticated',{detail:{username:u,password:p}}))}catch(_){}
+    const passEl=document.getElementById('adminPass');if(passEl)passEl.value='';
   }else{if(err)err.textContent='Username atau password admin salah.'}
   return false
 }

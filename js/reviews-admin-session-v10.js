@@ -297,6 +297,7 @@ window.pnRevokeAdminSession=async function(tokenOverride){
 window.addEventListener('online',()=>{if(persistentGet(AUTH_KEY)==='1'&&persistentGet(TOKEN_KEY))loadRows({quiet:true})});
 
 function installFastLogin(){
+  if(window.__pnCanonicalAdminLoginV1)return;
   if(window.submitAdminLogin&&window.submitAdminLogin.__serverAuthV5)return;
   window.submitAdminLogin=async function(ev){
     if(ev)ev.preventDefault();
@@ -322,6 +323,16 @@ function installFastLogin(){
   };
   window.submitAdminLogin.__reviewSessionV10=true;
 }
+
+window.addEventListener('pn:admin-authenticated',event=>{
+  const detail=event&&event.detail||{};
+  const username=String(detail.username||'').trim();
+  const password=String(detail.password||'');
+  if(!username||!password)return;
+  takeoverPanel();
+  setState('loading','Login admin berhasil. Menyambungkan database otomatis...');
+  void connect(username,password);
+});
 
 function boot(){
   installFastLogin();

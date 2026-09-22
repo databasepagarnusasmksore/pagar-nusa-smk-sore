@@ -301,6 +301,7 @@ async function moderate(id,status,button){
 }
 
 function wrapAdminLogin(){
+  if(window.__pnCanonicalAdminLoginV1)return;
   const old=window.submitAdminLogin;
   if(typeof old!=='function'||old.__professionalReviews)return;
   const wrapped=async function(ev){
