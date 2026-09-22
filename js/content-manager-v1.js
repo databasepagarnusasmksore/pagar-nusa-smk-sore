@@ -235,9 +235,14 @@ function askContentPassword(){
 
 async function connectContent(){
   if(token()){updateAccessButton();setStatus('✓ Akses otomatis memakai sesi login admin yang sudah aktif.','ok');await loadAdmin();return true}
-  const password=await askContentPassword();if(password===null)return false;
-  const requested='cms_'+cryptoRandom(56);const btn=$('pnCmsConnect');setBusy(btn,true,'MENGHUBUNGKAN...');setStatus('Menghubungkan pengelola konten ke database pusat...');
-  try{const r=await postReliable('contentAdminLogin',{username:'admin',password,token:requested});if(!r.token)throw new Error('Token admin tidak diterima.');saveToken(r.token);setStatus('✓ Akses konten aktif terus di perangkat ini sampai logout atau password diubah.','ok');await loadAdmin();return true}catch(err){setStatus(err.message||'Gagal menghubungkan akses konten.','err');return false}finally{setBusy(btn,false)}
+  const adminActive=(()=>{try{return localStorage.getItem('pnAdminAuth')==='1'||sessionStorage.getItem('pnAdminAuth')==='1'}catch(_){return false}})();
+  if(adminActive){
+    updateAccessButton();
+    setStatus('Sesi online belum aktif. Tidak perlu memasukkan password lagi. Backend Apps Script perlu diaktifkan/deploy, lalu login admin sekali.','err');
+    return false;
+  }
+  setStatus('Silakan login admin terlebih dahulu.','err');
+  return false;
 }
 function cryptoRandom(n=48){const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';const a=new Uint8Array(n);if(window.crypto?.getRandomValues)window.crypto.getRandomValues(a);else for(let i=0;i<n;i++)a[i]=Math.floor(Math.random()*256);return Array.from(a,b=>chars[b%chars.length]).join('')}
 

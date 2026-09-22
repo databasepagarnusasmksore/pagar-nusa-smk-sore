@@ -108,24 +108,36 @@ async function submitAdminLogin(ev){
   const err=document.getElementById('loginError');
   const submit=document.querySelector('#loginModal .loginSubmit');
   if(err)err.textContent='';
-  if(!u||!p){if(err)err.textContent='Username dan password admin wajib diisi.';return false}
-  if(typeof window.pnAdminServerAuthenticateV1!=='function'){
-    if(err)err.textContent='Modul login server belum siap. Silakan refresh halaman.';
-    return false;
-  }
-  if(submit){submit.disabled=true;submit.textContent='MENGHUBUNGKAN...'}
+  if(submit){submit.disabled=true;submit.textContent='MEMERIKSA...'}
+
   try{
-    await window.pnAdminServerAuthenticateV1(u,p);
-    localStorage.setItem('pnAdminAuth','1');sessionStorage.setItem('pnAdminAuth','1');
-    const passEl=document.getElementById('adminPass');if(passEl)passEl.value='';
-    closeAdminLogin();enterAdmin(true);
-    try{window.dispatchEvent(new CustomEvent('pn:admin-login-success',{detail:{server:true}}))}catch(_){}
-  }catch(e){
-    if(err)err.textContent=String(e&&e.message||e||'Login admin gagal.');
+    const hash=await sha256Hex(p);
+    if(u!==PN_ADMIN_USER||hash!==PN_ADMIN_PASS_HASH){
+      if(err)err.textContent='Username atau password admin salah.';
+      return false;
+    }
+
+    localStorage.setItem('pnAdminAuth','1');
+    sessionStorage.setItem('pnAdminAuth','1');
+    closeAdminLogin();
+    enterAdmin(true);
+
+    // Password hanya dipakai sesaat di memori untuk membuat sesi server.
+    // Dashboard tidak ditahan jika Apps Script lambat/tidak tersedia.
+    if(typeof window.pnAdminServerAuthenticateV1==='function'){
+      Promise.resolve()
+        .then(()=>window.pnAdminServerAuthenticateV1(u,p))
+        .catch(e=>{
+          try{window.dispatchEvent(new CustomEvent('pn:admin-session-error',{detail:{message:String(e&&e.message||e||'Backend admin belum aktif.')}}))}catch(_){}
+        });
+    }
+
+    const passEl=document.getElementById('adminPass');
+    if(passEl)passEl.value='';
+    return false;
   }finally{
     if(submit){submit.disabled=false;submit.textContent='MASUK'}
   }
-  return false
 }
 function setAdminControls(show){
   ['dbToggle','dbBackdrop','dbDrawer'].forEach(id=>document.getElementById(id)?.classList.toggle('hidden',!show));
