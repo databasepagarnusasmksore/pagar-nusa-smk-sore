@@ -51,6 +51,7 @@
 </section>
 </main>
 <div class="footer">© 2026 Pagar Nusa Rayon SMK Sore Tulungagung</div>
+<script src="js/biodata-aspel-panel-v5.js?v=6"></script>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js';
 import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged,setPersistence,browserSessionPersistence} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
@@ -177,8 +178,29 @@ function renderUkt(data){
     return `<div class="uktItem"><div class="uktTop"><div><h3 class="uktTitle">${pnUktEsc(stage)}</h3><div class="uktDate">${pnUktEsc(pnUktDate(x.date))}</div></div><span class="uktBadge ${cls}">${pnUktEsc(result||'TERCATAT')}</span></div><div class="uktDetails"><div class="uktDetail"><b>Tingkat Sebelum</b>${pnUktEsc(x.before||'-')}</div><div class="uktDetail"><b>Tingkat/Sabuk Setelah</b>${pnUktEsc(x.after||'-')}</div><div class="uktDetail"><b>Nilai</b>${pnUktEsc(x.score||'-')}</div><div class="uktDetail"><b>Penguji</b>${pnUktEsc(x.examiner||'-')}</div><div class="uktDetail full"><b>Keterangan</b>${pnUktEsc(x.notes||'-')}</div></div></div>`;
   }).join('');
 }
-async function loadBio(loginUser=user){if(!loginUser)throw new Error('Sesi Firebase belum tersedia.');const token=await loginUser.getIdToken(true);if(!token)throw new Error('Sesi login belum tersedia.');const r=await request('biodataGet',{idToken:token});currentUsername=String(r.account?.username||'').trim();currentMemberId=String(r.account?.memberId||r.biodata?.memberId||'').trim();if(!currentMemberId)throw new Error('ID Anggota untuk akun ini belum terhubung. Hubungi admin.');user=loginUser;render(r.biodata);renderUkt(r.ukt);$('studentName').textContent=r.biodata?.name||'Anggota';$('studentIdentity').textContent=currentMemberId+' · '+(r.account?.email||loginUser.email||'');$('loginView').classList.add('hidden');$('portalView').classList.remove('hidden')}
-async function saveBio(){const s=$('bioStatus');s.className='status';s.textContent='Menyimpan perubahan...';$('saveBtn').disabled=true;try{const token=await user.getIdToken(true);const payload={memberId:currentMemberId,idToken:token};document.querySelectorAll('#bioGrid [data-key]').forEach(el=>{if(!lockedKeys.has(el.dataset.key))payload[el.dataset.key]=el.value});const r=await request('biodataUpdate',payload);render(r.biodata);renderUkt(r.ukt);$('savedBox').classList.add('show');s.className='status ok';s.textContent=r.message||'Perubahan biodata berhasil disimpan.';$('studentName').textContent=r.biodata?.name||'Anggota'}catch(e){s.className='status err';s.textContent=e.message||'Gagal menyimpan biodata.'}finally{$('saveBtn').disabled=false}}
+let pnAspelLoadBusy=false,pnAspelLastLoad=0;
+async function loadAspelSupervision(loginUser=user,force=false){
+  if(!loginUser||pnAspelLoadBusy)return false;
+  if(!force&&Date.now()-pnAspelLastLoad<60000)return true;
+  pnAspelLoadBusy=true;
+  try{
+    const token=await loginUser.getIdToken(false);
+    const r=await request('biodataAspel',{memberId:currentMemberId,idToken:token},60000);
+    pnAspelLastLoad=Date.now();
+    const info=r?.aspel||{isAspel:false,total:0,roles:[],members:[]};
+    window.dispatchEvent(new CustomEvent('pn:biodata-aspel',{detail:info}));
+    if(typeof window.pnRenderBiodataAspelV5==='function')window.pnRenderBiodataAspelV5(info);
+    return true;
+  }catch(err){
+    console.warn('Data Koordinator ASPEL:',err);
+    return false;
+  }finally{
+    pnAspelLoadBusy=false;
+  }
+}
+
+async function loadBio(loginUser=user){if(!loginUser)throw new Error('Sesi Firebase belum tersedia.');const token=await loginUser.getIdToken(true);if(!token)throw new Error('Sesi login belum tersedia.');const r=await request('biodataGet',{idToken:token});currentUsername=String(r.account?.username||'').trim();currentMemberId=String(r.account?.memberId||r.biodata?.memberId||'').trim();if(!currentMemberId)throw new Error('ID Anggota untuk akun ini belum terhubung. Hubungi admin.');user=loginUser;render(r.biodata);renderUkt(r.ukt);$('studentName').textContent=r.biodata?.name||'Anggota';$('studentIdentity').textContent=currentMemberId+' · '+(r.account?.email||loginUser.email||'');$('loginView').classList.add('hidden');$('portalView').classList.remove('hidden');setTimeout(()=>loadAspelSupervision(loginUser,true),80)}
+async function saveBio(){const s=$('bioStatus');s.className='status';s.textContent='Menyimpan perubahan...';$('saveBtn').disabled=true;try{const token=await user.getIdToken(true);const payload={memberId:currentMemberId,idToken:token};document.querySelectorAll('#bioGrid [data-key]').forEach(el=>{if(!lockedKeys.has(el.dataset.key))payload[el.dataset.key]=el.value});const r=await request('biodataUpdate',payload);render(r.biodata);renderUkt(r.ukt);setTimeout(()=>loadAspelSupervision(user,true),80);$('savedBox').classList.add('show');s.className='status ok';s.textContent=r.message||'Perubahan biodata berhasil disimpan.';$('studentName').textContent=r.biodata?.name||'Anggota'}catch(e){s.className='status err';s.textContent=e.message||'Gagal menyimpan biodata.'}finally{$('saveBtn').disabled=false}}
 let pnPortalLiveRefreshBusy=false;
 async function pnRefreshPortalLive(){
   if(pnPortalLiveRefreshBusy||!user||!currentUsername||document.hidden)return false;
@@ -193,6 +215,7 @@ async function pnRefreshPortalLive(){
       $('studentName').textContent=r.biodata?.name||'Anggota';
     }
     if(r?.ukt)renderUkt(r.ukt);
+    loadAspelSupervision(user,false);
     return true;
   }catch(err){
     console.warn('Refresh portal anggota:',err);
@@ -204,7 +227,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
 setInterval(pnRefreshPortalLive,20000);
 function loginErrorText(e){const c=String(e?.code||'');if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))return'Email atau password tidak benar.';if(c.includes('too-many-requests'))return'Terlalu banyak percobaan login. Coba beberapa saat lagi.';return e?.message||'Login gagal.'}
 buildFields();
-if(endpointReady()){$('setupNotice').textContent='Portal Biodata aktif · UKT 1–5 + ASPEL · versi 13. Login cukup menggunakan email dan password.';$('setupNotice').classList.add('ok');$('loginBtn').disabled=false}else{$('setupNotice').innerHTML='<b>Portal Biodata menggunakan backend utama.</b><br>Pastikan Code.gs V14 sudah di-deploy sebagai versi baru.'}
+if(endpointReady()){$('setupNotice').textContent='Portal Biodata aktif · UKT 1–5 + ASPEL · versi 14. Login cukup menggunakan email dan password.';$('setupNotice').classList.add('ok');$('loginBtn').disabled=false}else{$('setupNotice').innerHTML='<b>Portal Biodata menggunakan backend utama.</b><br>Pastikan Code.gs V14 sudah di-deploy sebagai versi baru.'}
 const app=initializeApp(FIREBASE_CONFIG);auth=getAuth(app);setPersistence(auth,browserSessionPersistence).catch(()=>{});
 const passwordInput=$('password');
 function pnClearLoginPassword(){
