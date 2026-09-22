@@ -159,20 +159,34 @@ function applyPublicGallery(items){
 async function loadPublic(){
   try{
     const r=await jsonp('contentPublicList',{},18000);
-    if(!r||!r.ok)return;
+    if(!r||!r.ok)throw new Error(r&&r.message||'Data publik belum tersedia.');
+    const content=Array.isArray(r.content)?r.content.filter(x=>String(x?.id||'')!=='CFG-REGISTRATION'&&String(x?.type||'').toUpperCase()!=='PENGATURAN'):[];
+    const gallery=Array.isArray(r.gallery)?r.gallery:[];
     window.__pnCmsPublicData=r;
     window.__pnCmsPublicLoadedAt=Date.now();
     window.dispatchEvent(new CustomEvent('pn:cms-public-data',{detail:r}));
-    applyPublicNews(r.content||[]);
-    applyPublicGallery(r.gallery||[]);
-  }catch(_){/* static content remains as fallback */}
+    applyPublicNews(content);
+    applyPublicGallery(gallery);
+
+    adminContent=content.slice();
+    adminGallery=gallery.slice();
+    if($('pnContentAdminPanel')){
+      renderContentList();
+      renderGalleryList();
+      setStatus('✓ Data website tampil otomatis • '+adminContent.length+' kabar/informasi • '+adminGallery.length+' foto','ok');
+    }
+    return r;
+  }catch(err){
+    if($('pnContentAdminPanel'))setStatus('Data online belum berhasil dimuat. Klik MUAT ULANG.','err');
+    return null;
+  }
 }
 
 function panelHtml(){return `
   <div class="card pnCmsCard" id="pnContentAdminPanel">
-    <div class="cardTitle pnCmsHead"><span>⚙️ KELOLA FOTO, KABAR & INFORMASI WEBSITE</span><div class="pnCmsHeadActions"><button id="pnCmsConnect" class="pnCmsBtn teal" type="button">🔐 HUBUNGKAN AKSES</button><button id="pnCmsReload" class="pnCmsBtn light" type="button">↻ MUAT ULANG</button></div></div>
+    <div class="cardTitle pnCmsHead"><span>⚙️ KELOLA FOTO, KABAR & INFORMASI WEBSITE</span><div class="pnCmsHeadActions"><button id="pnCmsReload" class="pnCmsBtn light" type="button">↻ MUAT ULANG</button></div></div>
     <div class="cardBody">
-      <div id="pnCmsStatus" class="pnCmsStatus">Memeriksa akses pengelola konten...</div>
+      <div id="pnCmsStatus" class="pnCmsStatus">Memuat data website otomatis...</div>
       <div class="pnCmsTabs"><button id="pnCmsTabContent" class="pnCmsTab active" type="button">📰 KABAR & INFORMASI</button><button id="pnCmsTabGallery" class="pnCmsTab" type="button">🖼️ GALERI / FOTO</button></div>
       <section id="pnCmsContentPane">
         <div class="pnCmsGrid">
@@ -209,7 +223,7 @@ function setBusy(btn,busy,text){if(!btn)return;if(busy){btn.dataset.old=btn.text
 function token(){try{return sessionStorage.getItem(TOKEN_KEY)||localStorage.getItem(TOKEN_KEY)||''}catch(_){try{return sessionStorage.getItem(TOKEN_KEY)||''}catch(__){return''}}}
 function saveToken(value){try{localStorage.setItem(TOKEN_KEY,String(value))}catch(_){};try{sessionStorage.setItem(TOKEN_KEY,String(value))}catch(_){}}
 function clearToken(){try{localStorage.removeItem(TOKEN_KEY)}catch(_){};try{sessionStorage.removeItem(TOKEN_KEY)}catch(_){}}
-function updateAccessButton(){const btn=$('pnCmsConnect');if(!btn)return;const active=!!token();btn.textContent=active?'✓ AKSES OTOMATIS':'🔐 HUBUNGKAN AKSES';btn.classList.toggle('light',active);btn.classList.toggle('teal',!active);btn.title=active?'Akses konten memakai sesi admin yang sudah tersimpan.':'Hubungkan akses konten online.'}
+function updateAccessButton(){return}
 function today(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta'}).format(new Date())}
 
 function askContentPassword(){
@@ -234,24 +248,9 @@ function askContentPassword(){
 }
 
 async function connectContent(){
-  if(token()){updateAccessButton();setStatus('✓ Akses otomatis memakai sesi login admin yang sudah aktif.','ok');await loadAdmin();return true}
-  const adminActive=(()=>{try{return localStorage.getItem('pnAdminAuth')==='1'||sessionStorage.getItem('pnAdminAuth')==='1'}catch(_){return false}})();
-  if(adminActive){
-    updateAccessButton();
-    setStatus('Sesi online belum aktif. Tidak perlu memasukkan password lagi. Backend Apps Script perlu diaktifkan/deploy, lalu login admin sekali.','err');
-    return false;
-  }
-  setStatus('Silakan login admin terlebih dahulu.','err');
+  if(token())return true;
+  setStatus('✓ Data tetap tampil otomatis. Simpan/Ubah/Hapus masih dilindungi backend admin dan belum aktif.','err');
   return false;
-}
-function cryptoRandom(n=48){const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';const a=new Uint8Array(n);if(window.crypto?.getRandomValues)window.crypto.getRandomValues(a);else for(let i=0;i<n;i++)a[i]=Math.floor(Math.random()*256);return Array.from(a,b=>chars[b%chars.length]).join('')}
-
-function currentDomSeed(){
-  const content=Array.from(document.querySelectorAll('.newsSection .newsCard')).map((card,i)=>({
-    type:card.querySelector('.newsBadge')?.textContent?.trim()||'BERITA',title:card.querySelector('h3')?.textContent?.trim()||'',summary:card.querySelector('p')?.textContent?.trim()||'',body:'',date:card.querySelector('.newsDate')?.textContent?.trim()||'',badge:card.querySelector('.newsBadge')?.textContent?.trim()||'',link:card.querySelector('.newsReadMore')?.getAttribute('href')||'',status:'PUBLIK',order:i+1
-  })).filter(x=>x.title);
-  const gallery=Array.from(document.querySelectorAll('#gallerySection .galleryItem')).map((btn,i)=>({title:btn.querySelector('.galleryOverlay')?.textContent?.trim()||('Dokumentasi Kegiatan • Foto '+(i+1)),url:btn.querySelector('img')?.getAttribute('src')||'',fileId:'',status:'PUBLIK',order:i+1,alt:btn.querySelector('img')?.getAttribute('alt')||'',note:''})).filter(x=>x.url);
-  return{content,gallery};
 }
 
 async function maybeSeed(){
@@ -308,13 +307,13 @@ function editContent(id){const x=adminContent.find(v=>v.id===id);if(!x)return;ed
 function normalizeDateInput(s){const m=String(s||'').match(/(\d{4})-(\d{2})-(\d{2})/);if(m)return m[0];const d=new Date(s);return isNaN(d)?today():new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta'}).format(d)}
 
 async function saveContent(){
-  if(!token()&&!await connectContent())return;const title=$('pnCmsTitle').value.trim();if(!title){setStatus('Judul kabar/informasi wajib diisi.','err');return}
+  if(!token()){await connectContent();return;}const title=$('pnCmsTitle').value.trim();if(!title){setStatus('Judul kabar/informasi wajib diisi.','err');return}
   const item={id:editingContentId,type:$('pnCmsType').value,title,summary:$('pnCmsSummary').value.trim(),body:$('pnCmsBody').value.trim(),date:$('pnCmsDate').value,badge:$('pnCmsBadge').value.trim()||$('pnCmsType').value,link:$('pnCmsLink').value.trim(),status:$('pnCmsContentStatus').value,order:Number($('pnCmsOrder').value||1)};
   const btn=$('pnCmsSaveContent');setBusy(btn,true,'MENYIMPAN...');try{await postReliable('contentAdminSave',{token:token(),section:'content',itemJson:JSON.stringify(item)});setStatus('✓ Kabar/informasi berhasil disimpan. Dashboard publik diperbarui otomatis.','ok');resetContent();await loadAdmin();await loadPublic()}catch(err){setStatus(err.message,'err')}finally{setBusy(btn,false)}
 }
 
-async function deleteItem(section,id){if(!confirm('Hapus/sembunyikan data ini dari website?'))return;try{await postReliable('contentAdminDelete',{token:token(),section,id});setStatus('✓ Data dihapus dari tampilan publik.','ok');await loadAdmin();await loadPublic()}catch(err){setStatus(err.message,'err')}}
-async function togglePublish(section,item){const copy={...item,status:item.status==='PUBLIK'?'DRAFT':'PUBLIK'};try{await postReliable('contentAdminSave',{token:token(),section,itemJson:JSON.stringify(copy)});await loadAdmin();await loadPublic()}catch(err){setStatus(err.message,'err')}}
+async function deleteItem(section,id){if(!token()){await connectContent();return}if(!confirm('Hapus/sembunyikan data ini dari website?'))return;try{await postReliable('contentAdminDelete',{token:token(),section,id});setStatus('✓ Data dihapus dari tampilan publik.','ok');await loadAdmin();await loadPublic()}catch(err){setStatus(err.message,'err')}}
+async function togglePublish(section,item){if(!token()){await connectContent();return}const copy={...item,status:item.status==='PUBLIK'?'DRAFT':'PUBLIK'};try{await postReliable('contentAdminSave',{token:token(),section,itemJson:JSON.stringify(copy)});await loadAdmin();await loadPublic()}catch(err){setStatus(err.message,'err')}}
 
 function renderContentList(){const box=$('pnCmsContentList');if(!box)return;box.innerHTML='';if(!adminContent.length){box.innerHTML='<div class="pnCmsItem"><div><h4>Belum ada data</h4><p>Tambahkan kabar, berita, pengumuman, atau informasi di atas.</p></div></div>';return}adminContent.forEach(x=>{const row=document.createElement('div');row.className='pnCmsItem';row.innerHTML=`<div><h4>${esc(x.title)}</h4><p>${esc(x.type||'INFORMASI')} • ${esc(x.date||'')} • Urutan ${esc(x.order||1)} • <b>${esc(x.status||'DRAFT')}</b><br>${esc(x.summary||'')}</p></div><div class="pnCmsItemBtns"><button class="pnCmsMini edit">EDIT</button><button class="pnCmsMini pub">${x.status==='PUBLIK'?'SEMBUNYIKAN':'TERBITKAN'}</button><button class="pnCmsMini del">HAPUS</button></div>`;const [edit,pub,del]=row.querySelectorAll('button');edit.onclick=()=>editContent(x.id);pub.onclick=()=>togglePublish('content',x);del.onclick=()=>deleteItem('content',x.id);box.appendChild(row)})}
 
@@ -329,7 +328,7 @@ async function compressImage(file){
   const max=1600,scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),w=Math.max(1,Math.round(img.naturalWidth*scale)),h=Math.max(1,Math.round(img.naturalHeight*scale));const c=document.createElement('canvas');c.width=w;c.height=h;const ctx=c.getContext('2d');ctx.drawImage(img,0,0,w,h);const out=c.toDataURL('image/jpeg',.82);if(out.length>4_800_000)throw new Error('Foto masih terlalu besar. Pilih foto dengan ukuran lebih kecil.');return{base64:out.split(',')[1],mimeType:'image/jpeg',fileName:(file.name||'foto').replace(/\.[^.]+$/,'')+'.jpg',preview:out}}
 
 async function saveGallery(){
-  if(!token()&&!await connectContent())return;const title=$('pnCmsGalleryTitle').value.trim()||'Dokumentasi Kegiatan Pagar Nusa';const old=adminGallery.find(v=>v.id===editingGalleryId)||{};let url=old.url||'',fileId=old.fileId||'';const file=$('pnCmsImageFile').files?.[0];const btn=$('pnCmsSaveGallery');setBusy(btn,true,file?'MENGUPLOAD FOTO...':'MENYIMPAN...');
+  if(!token()){await connectContent();return;}const title=$('pnCmsGalleryTitle').value.trim()||'Dokumentasi Kegiatan Pagar Nusa';const old=adminGallery.find(v=>v.id===editingGalleryId)||{};let url=old.url||'',fileId=old.fileId||'';const file=$('pnCmsImageFile').files?.[0];const btn=$('pnCmsSaveGallery');setBusy(btn,true,file?'MENGUPLOAD FOTO...':'MENYIMPAN...');
   try{
     if(file){const pic=await compressImage(file);const up=await postReliable('contentUploadImage',{token:token(),fileName:pic.fileName,mimeType:pic.mimeType,base64:pic.base64},70000);url=up.url;fileId=up.fileId}
     if(!url)throw new Error('Pilih foto terlebih dahulu.');
@@ -341,33 +340,42 @@ async function saveGallery(){
 function switchTab(tab){activeTab=tab;const c=tab==='content';$('pnCmsContentPane').classList.toggle('pnCmsHidden',!c);$('pnCmsGalleryPane').classList.toggle('pnCmsHidden',c);$('pnCmsTabContent').classList.toggle('active',c);$('pnCmsTabGallery').classList.toggle('active',!c)}
 
 function installAdmin(){
-  ensureStyles();if($('pnContentAdminPanel'))return;const main=document.querySelector('#adminApp main');if(!main)return;main.insertAdjacentHTML('afterbegin',panelHtml());
-  $('pnCmsConnect').onclick=connectContent;$('pnCmsReload').onclick=loadAdmin;$('pnCmsTabContent').onclick=()=>switchTab('content');$('pnCmsTabGallery').onclick=()=>switchTab('gallery');$('pnCmsSaveContent').onclick=saveContent;$('pnCmsNewContent').onclick=resetContent;$('pnCmsSaveGallery').onclick=saveGallery;$('pnCmsNewGallery').onclick=resetGallery;
-  $('pnCmsImageFile').addEventListener('change',async e=>{const f=e.target.files?.[0],p=$('pnCmsImagePreview');if(!f){p.classList.add('pnCmsHidden');return}try{const d=await readAsDataURL(f);p.src=d;p.classList.remove('pnCmsHidden')}catch(_){}});
-  resetContent();resetGallery();updateAccessButton();setStatus(token()?'✓ Akses otomatis aktif. Data online memakai sesi login admin yang tersimpan.':'Login admin tersedia. Akses konten akan tersambung otomatis setelah login admin.');
+  ensureStyles();
+  if($('pnContentAdminPanel'))return;
+  const main=document.querySelector('#adminApp main');
+  if(!main)return;
+  main.insertAdjacentHTML('afterbegin',panelHtml());
+
+  $('pnCmsReload').onclick=()=>void loadPublic();
+  $('pnCmsTabContent').onclick=()=>switchTab('content');
+  $('pnCmsTabGallery').onclick=()=>switchTab('gallery');
+  $('pnCmsSaveContent').onclick=saveContent;
+  $('pnCmsNewContent').onclick=resetContent;
+  $('pnCmsSaveGallery').onclick=saveGallery;
+  $('pnCmsNewGallery').onclick=resetGallery;
+
+  $('pnCmsImageFile').addEventListener('change',async e=>{
+    const f=e.target.files?.[0],p=$('pnCmsImagePreview');
+    if(!f){p.classList.add('pnCmsHidden');return}
+    try{const d=await readAsDataURL(f);p.src=d;p.classList.remove('pnCmsHidden')}catch(_){}
+  });
+
+  resetContent();
+  resetGallery();
+  setStatus('Memuat data website otomatis...');
 }
 
 function boot(){
-  // Prioritaskan area admin saat sesi aktif; konten publik tetap punya fallback statis.
   installAdmin();
-  if(token())setTimeout(loadPublic,10000);else loadPublic();
+  void loadPublic();
   setTimeout(installAdmin,500);
   setTimeout(installAdmin,1500);
-  window.addEventListener('online',()=>{if(token())loadAdmin();else loadPublic()});
-  window.addEventListener('pn:admin-session-starting',()=>{installAdmin();updateAccessButton();setStatus('Menyambungkan akses konten otomatis...');setTimeout(()=>void loadAdmin(),300)});
-  window.addEventListener('pn:admin-session-ready',()=>{installAdmin();updateAccessButton();if(token())void loadAdmin()});
-  window.addEventListener('storage',e=>{if(e.key===TOKEN_KEY){updateAccessButton();if(token())void loadAdmin()}});
+  window.addEventListener('online',()=>void loadPublic());
 }
-let pnCmsAdminOpenTimer=0;
+
 window.addEventListener('pn:admin-open',()=>{
-  clearTimeout(pnCmsAdminOpenTimer);
-  pnCmsAdminOpenTimer=setTimeout(()=>{
-    installAdmin();
-    if(!token())return;
-    const age=Date.now()-Number(window.__pnCmsAdminLoadedAt||0);
-    if(age<45000)return;
-    void loadAdmin();
-  },4200);
+  installAdmin();
+  void loadPublic();
 });
 document.addEventListener('DOMContentLoaded',boot);
 })();

@@ -154,36 +154,20 @@ function render(){
 }
 
 async function loadRows({quiet=false}={}){
-  const token=persistentGet(TOKEN_KEY);
-  if(!token){rows=[];online=false;render();setState('error','Sesi moderasi belum aktif. Klik HUBUNGKAN MODERASI.');return false;}
-  if(!quiet)setState('loading','Memuat antrean ulasan dari database pusat...');
+  if(!quiet)setState('loading','Memuat ulasan website otomatis...');
   try{
-    const r=await jsonp('reviewAdminList',{token},22000);
+    const r=await jsonp('reviewPublicList',{},18000);
     rows=Array.isArray(r.reviews)?r.reviews:[];
     rows.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
     online=true;
-    const pending=stats();render();
-    persistentSet(AUTH_KEY,'1');setState('online','✓ Database pusat terhubung permanen di perangkat ini • '+pending+' ulasan menunggu verifikasi.');
-    window.dispatchEvent(new CustomEvent('pn:admin-session-ready',{detail:{ok:true}}));
-    updateConnectButton();
+    render();
+    setState('online','✓ '+rows.length+' ulasan terbit tampil otomatis • tidak perlu Hubungkan Moderasi.');
     return true;
   }catch(err){
+    rows=[];
     online=false;
-    const msg=String(err&&err.message||'');
-    if(/sesi admin sudah dinonaktifkan|sesi verifikasi admin tidak valid|sesi admin perangkat tidak ditemukan/i.test(msg)){
-      // Saat connect() masih berjalan, server mungkin belum sempat mencatat token.
-      // Jangan hapus token baru pada percobaan awal; biarkan retry berikutnya memakainya.
-      if(connecting){
-        persistentSet(AUTH_KEY,'1');
-        setState('loading','Menyelesaikan sesi admin otomatis...');
-        return false;
-      }
-      // Di luar proses connect, sesi yang benar-benar kedaluwarsa boleh dibersihkan.
-      persistentRemove(TOKEN_KEY);
-      persistentSet(AUTH_KEY,'1');
-    }
-    setState('error','Koneksi database belum aktif. '+msg);
-    updateConnectButton();
+    render();
+    setState('error','Ulasan publik belum berhasil dimuat. Klik MUAT ULANG.');
     return false;
   }
 }
@@ -247,10 +231,7 @@ function replaceControl(id,event,handler){
   const neo=old.cloneNode(true);old.replaceWith(neo);neo.addEventListener(event,handler);return neo;
 }
 
-function updateConnectButton(){
-  const btn=$('pnReviewDirectConnect');if(!btn)return;
-  btn.textContent=online?'✓ MODERASI ONLINE':'🔐 HUBUNGKAN MODERASI';
-}
+function updateConnectButton(){return}
 
 function takeoverPanel(){
   const panel=$('pnReviewAdminPanel');if(!panel)return false;
@@ -261,19 +242,9 @@ function takeoverPanel(){
   replaceControl('pnReviewFilter','change',render);
   const tools=panel.querySelector('.pnReviewTools');
   if(tools){
-    let btn=$('pnReviewDirectConnect');
-    if(!btn){
-      btn=document.createElement('button');btn.id='pnReviewDirectConnect';btn.type='button';btn.className='pnReviewRefresh';tools.appendChild(btn);
-    }
-    tools.style.gridTemplateColumns='minmax(180px,1fr) 160px auto auto';
-    btn.onclick=async()=>{
-      if(online){await loadRows();return;}
-      const password=prompt('Masukkan password admin untuk menghubungkan moderasi:','');
-      if(password===null)return;
-      const username=(typeof PN_ADMIN_USER!=='undefined'&&PN_ADMIN_USER)||'admin';
-      btn.disabled=true;
-      try{await connect(username,password)}finally{btn.disabled=false}
-    };
+    const oldBtn=$('pnReviewDirectConnect');
+    if(oldBtn)oldBtn.remove();
+    tools.style.gridTemplateColumns='minmax(180px,1fr) 160px auto';
   }
   const list=$('pnReviewAdminList');
   if(list){
@@ -294,7 +265,7 @@ window.pnRevokeAdminSession=async function(tokenOverride){
   persistentRemove(TOKEN_KEY);
 };
 
-window.addEventListener('online',()=>{if(persistentGet(AUTH_KEY)==='1'&&persistentGet(TOKEN_KEY))loadRows({quiet:true})});
+window.addEventListener('online',()=>void loadRows({quiet:true}));
 
 function installFastLogin(){
   return;
@@ -325,39 +296,15 @@ function installFastLogin(){
   window.submitAdminLogin.__reviewSessionV10=true;
 }
 
-window.addEventListener('pn:admin-authenticated',event=>{
-  if(window.__pnCentralAdminAutoSessionV1){
-    takeoverPanel();
-    setState('loading','Login admin berhasil. Menyambungkan database otomatis...');
-    return;
-  }
-  const detail=event&&event.detail||{};
-  const username=String(detail.username||'').trim();
-  const password=String(detail.password||'');
-  if(!username||!password)return;
-  takeoverPanel();
-  setState('loading','Login admin berhasil. Menyambungkan database otomatis...');
-  void connect(username,password);
-});
-window.addEventListener('pn:admin-session-ready',()=>{
-  takeoverPanel();
-  void loadRows({quiet:true});
-});
-window.addEventListener('pn:admin-session-error',event=>{
-  takeoverPanel();
-  const msg=String(event?.detail?.message||'Sesi admin otomatis belum aktif.');
-  setState('error',msg);
-});
+window.addEventListener('pn:admin-session-ready',()=>{takeoverPanel();void loadRows({quiet:true})});
+window.addEventListener('pn:admin-open',()=>{takeoverPanel();void loadRows({quiet:true})});
 
 function boot(){
   installFastLogin();
   setTimeout(()=>{
     if(!takeoverPanel())return;
-    if(persistentGet(AUTH_KEY)==='1'){
-      if(persistentGet(TOKEN_KEY))loadRows();
-      else setState('error','Sesi moderasi belum aktif. Klik HUBUNGKAN MODERASI.');
-    }
-  },9000);
+    void loadRows();
+  },700);
 }
 
 document.addEventListener('DOMContentLoaded',boot);
