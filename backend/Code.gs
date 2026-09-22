@@ -45,22 +45,6 @@ const PN_EXCEL_BACKUP_PREFIX = 'PN_EXCEL_BACKUP_';
 const PN_EXCEL_BACKUP_KEEP = 5;
 const PN_EXCEL_HISTORY_SHEET_NAME = 'Riwayat Perubahan Database Excel';
 const PN_EXCEL_HISTORY_KEEP = 2000;
-const PN_MAIN_DB_SPREADSHEET_ID = '1aFAHaDmL2m4FwiXhU1trTA-g0pbuhgMtp-WnGVlqwv8';
-const PN_MAIN_DB_REVISION_PROPERTY = 'PN_MAIN_DB_REVISION_V1';
-const PN_MAIN_DB_UPDATED_PROPERTY = 'PN_MAIN_DB_UPDATED_AT_V1';
-const PN_MAIN_DB_SHEETS = {
-  'Referensi': {cols:23, maxRows:500, styleRow:5},
-  'Data Siswa': {cols:20, maxRows:1000, styleRow:6},
-  'Data Pengurus': {cols:11, maxRows:1000, styleRow:6},
-  'Data Alumni': {cols:15, maxRows:1000, styleRow:6},
-  'Kehadiran': {cols:226, maxRows:1000, styleRow:4},
-  'Kenaikan Tingkat': {cols:13, maxRows:1000, styleRow:6},
-  'Prestasi': {cols:10, maxRows:1000, styleRow:5},
-  'Iuran': {cols:12, maxRows:1000, styleRow:5},
-  'Data Pelanggaran': {cols:12, maxRows:1000, styleRow:6},
-  'Data SP 1-3': {cols:17, maxRows:10000, styleRow:6},
-  'Data Keluar': {cols:12, maxRows:1000, styleRow:6}
-};
 const PN_ONLINE_DATABASE_SPREADSHEET_ID = '1fg-zsfYnK6nCJZTOT-xzICkUOMgmMKTPOLWPtvHLOnM';
 const PN_ONLINE_DATABASE_VERSION_PROPERTY = 'PN_ONLINE_DATABASE_VERSION_V1';
 const PN_ONLINE_DATABASE_ALLOWED_SHEETS = [
@@ -146,10 +130,10 @@ function doGet(e) {
       excelCloud:true,
       excelCloudVersion:'6',
       primaryDatabase:'google-sheets',
-      primaryDatabaseVersion:'2',
-      primaryDatabaseSpreadsheetId:PN_MAIN_DB_SPREADSHEET_ID,
+      primaryDatabaseVersion:'3',
+      primaryDatabaseSpreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
       onlineDatabase:true,
-      onlineDatabaseVersion:'1',
+      onlineDatabaseVersion:'2',
       onlineDatabaseMode:'GOOGLE_SHEETS_PRIMARY',
       excelCloudChunkUpload:true,
       adminNotificationCenter:true,
@@ -428,15 +412,6 @@ function doPost(e) {
       return iframeResult_(result, 'pn-database');
     }
 
-    if (action === 'databaseSheetSnapshot') {
-    let result;
-    try { result = databaseSheetSnapshot_(data); }
-    catch (err) { result = {ok:false, message:String(err && err.message || err)}; }
-    result.rid = String(data.rid || '');
-    if (data.callback) return jsonp_(result, data.callback);
-    return json_(result);
-  }
-
   if (action === 'databaseManifest') {
       result = excelDatabaseManifest_(data);
       result.rid = String(data.rid || '');
@@ -453,13 +428,6 @@ function doPost(e) {
     if (action === 'databaseGet') {
       result = excelDatabaseGet_(data);
       result.rid = String(data.rid || '');
-      return iframeResult_(result, 'pn-database');
-    }
-
-    if (action === 'databaseSheetRowSave') {
-      result = databaseSheetRowSave_(data);
-      result.rid = String(data.rid || '');
-      contentRememberResult_(data.rid, result);
       return iframeResult_(result, 'pn-database');
     }
 
@@ -2713,182 +2681,88 @@ function onlineDatabaseSheetRead_(data) {
   };
 }
 
+function onlineDatabaseColumnNumber_(letters) {
+  let n = 0;
+  String(letters || '').toUpperCase().split('').forEach(function(ch){
+    n = n * 26 + ch.charCodeAt(0) - 64;
+  });
+  return n;
+}
+
 function onlineDatabaseSheetPatch_(data) {
   const admin = requireReviewAdmin_(data.token);
   let patches = [];
   try { patches = JSON.parse(String(data.patches || '[]')); }
   catch (_) { throw new Error('Data perubahan Google Sheets tidak valid.'); }
+
   if (!Array.isArray(patches) || !patches.length) {
     return {ok:true, count:0, version:onlineDatabaseVersion_(), message:'Tidak ada perubahan untuk disimpan.'};
   }
-  if (patches.length > 250) throw new Error('Terlalu banyak perubahan sekaligus. Maksimal 250 sel.');
+  if (patches.length > 400) throw new Error('Terlalu banyak perubahan sekaligus. Maksimal 400 sel.');
 
   const book = onlineDatabaseBook_();
+  const grouped = {};
+
+  patches.forEach(function(p){
+    const sheetName = onlineDatabaseSheetAllowed_(p.sheet);
+    const addr = String(p.address || '').trim().toUpperCase();
+    const match = addr.match(/^([A-Z]{1,3})([1-9][0-9]{0,5})$/);
+    if (!match) throw new Error('Alamat sel tidak valid: ' + addr);
+
+    const row = Number(match[2]);
+    const col = onlineDatabaseColumnNumber_(match[1]);
+    const key = sheetName + '|' + row;
+    if (!grouped[key]) grouped[key] = {sheetName:sheetName,row:row,items:[]};
+    grouped[key].items.push({
+      col:col,
+      clear:(p.clear === true || String(p.clear || '') === '1'),
+      value:(p.value === null || p.value === undefined) ? '' : p.value
+    });
+  });
+
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   let count = 0;
+  let writeRanges = 0;
+
   try {
-    patches.forEach(function(p){
-      const sheetName = onlineDatabaseSheetAllowed_(p.sheet);
-      const addr = String(p.address || '').trim().toUpperCase();
-      if (!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(addr)) throw new Error('Alamat sel tidak valid: ' + addr);
-      const sheet = book.getSheetByName(sheetName);
-      if (!sheet) throw new Error('Sheet database online tidak ditemukan: ' + sheetName);
-      const range = sheet.getRange(addr);
-      if (p.clear === true || String(p.clear || '') === '1') range.clearContent();
-      else range.setValue(p.value === null || p.value === undefined ? '' : p.value);
-      count++;
+    Object.keys(grouped).forEach(function(key){
+      const group = grouped[key];
+      const sheet = book.getSheetByName(group.sheetName);
+      if (!sheet) throw new Error('Sheet database online tidak ditemukan: ' + group.sheetName);
+
+      group.items.sort(function(a,b){ return a.col-b.col; });
+      const runs = [];
+      let run = [];
+      group.items.forEach(function(item){
+        if (!run.length || item.col === run[run.length-1].col + 1) run.push(item);
+        else { runs.push(run); run=[item]; }
+      });
+      if (run.length) runs.push(run);
+
+      runs.forEach(function(items){
+        const startCol = items[0].col;
+        const range = sheet.getRange(group.row,startCol,1,items.length);
+        const values = range.getValues()[0];
+        items.forEach(function(item,index){
+          values[index] = item.clear ? '' : item.value;
+          count++;
+        });
+        range.setValues([values]);
+        writeRanges++;
+      });
     });
+
     SpreadsheetApp.flush();
     const version = onlineDatabaseBumpVersion_();
-    adminAudit_('ONLINE_DATABASE_PATCH','OK',count + ' sel Google Sheets disimpan oleh ' + admin + '.');
+    adminAudit_('ONLINE_DATABASE_PATCH','OK',count + ' sel Google Sheets disimpan dalam ' + writeRanges + ' range oleh ' + admin + '.');
     return {
       ok:true,
       count:count,
+      ranges:writeRanges,
       version:version,
       spreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
       message:'Perubahan tersimpan langsung ke Google Sheets.'
-    };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-function databaseSheetConfig_(name) {
-  name = String(name || '').trim();
-  const cfg = PN_MAIN_DB_SHEETS[name];
-  if (!cfg) throw new Error('Sheet database tidak diizinkan: ' + name);
-  return {name:name, cols:Number(cfg.cols), maxRows:Number(cfg.maxRows), styleRow:Number(cfg.styleRow)};
-}
-
-function databaseSheetBook_() {
-  return SpreadsheetApp.openById(PN_MAIN_DB_SPREADSHEET_ID);
-}
-
-function databaseSheetExcelSerial_(date) {
-  if (!(date instanceof Date) || isNaN(date.getTime())) return '';
-  const utc = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds());
-  return (utc - Date.UTC(1899,11,30)) / 86400000;
-}
-
-function databaseSheetJsonValue_(value) {
-  if (value instanceof Date) return databaseSheetExcelSerial_(value);
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'number' || typeof value === 'boolean') return value;
-  return String(value);
-}
-
-function databaseSheetRevision_() {
-  const props = PropertiesService.getScriptProperties();
-  return {
-    revision:Number(props.getProperty(PN_MAIN_DB_REVISION_PROPERTY) || 1),
-    updatedAt:String(props.getProperty(PN_MAIN_DB_UPDATED_PROPERTY) || '')
-  };
-}
-
-function databaseSheetTouchRevision_() {
-  const props = PropertiesService.getScriptProperties();
-  const next = Number(props.getProperty(PN_MAIN_DB_REVISION_PROPERTY) || 1) + 1;
-  const updatedAt = Utilities.formatDate(new Date(), 'Asia/Jakarta', "yyyy-MM-dd'T'HH:mm:ss");
-  props.setProperty(PN_MAIN_DB_REVISION_PROPERTY, String(next));
-  props.setProperty(PN_MAIN_DB_UPDATED_PROPERTY, updatedAt);
-  return {revision:next, updatedAt:updatedAt};
-}
-
-function databaseSheetSnapshot_(data) {
-  requireReviewAdmin_(data.token);
-  const cfg = databaseSheetConfig_(data.sheet);
-  const book = databaseSheetBook_();
-  const sheet = book.getSheetByName(cfg.name);
-  if (!sheet) throw new Error('Sheet database tidak ditemukan: ' + cfg.name);
-
-  const lastRow = Math.max(1, Math.min(cfg.maxRows, sheet.getLastRow() || 1));
-  const values = sheet.getRange(1,1,lastRow,cfg.cols).getValues().map(function(row){
-    return row.map(databaseSheetJsonValue_);
-  });
-  const rev = databaseSheetRevision_();
-  return {
-    ok:true,
-    source:'google-sheets',
-    spreadsheetId:PN_MAIN_DB_SPREADSHEET_ID,
-    sheet:cfg.name,
-    rows:lastRow,
-    cols:cfg.cols,
-    values:values,
-    revision:rev.revision,
-    updatedAt:rev.updatedAt,
-    version:'1'
-  };
-}
-
-function databaseSheetEnsureLog_(book) {
-  let sheet = book.getSheetByName('Migrasi Log');
-  if (!sheet) {
-    sheet = book.insertSheet('Migrasi Log');
-    sheet.getRange(1,1,1,8).setValues([['Waktu','Sheet','Baris','Aksi','Admin','Sumber','Revision','Keterangan']]);
-    sheet.setFrozenRows(1);
-  }
-  return sheet;
-}
-
-function databaseSheetRowSave_(data) {
-  const admin = requireReviewAdmin_(data.token);
-  const cfg = databaseSheetConfig_(data.sheet);
-  const row = Math.floor(Number(data.row || 0));
-  if (!Number.isFinite(row) || row < 1 || row > cfg.maxRows) throw new Error('Baris database tidak valid.');
-
-  let values = [];
-  let numeric = [];
-  try { values = JSON.parse(String(data.values || '[]')); } catch (_) { throw new Error('Data baris tidak valid.'); }
-  try { numeric = JSON.parse(String(data.numeric || '[]')); } catch (_) { numeric = []; }
-  if (!Array.isArray(values)) throw new Error('Data baris tidak valid.');
-
-  const out = new Array(cfg.cols).fill('');
-  for (let i=0; i<cfg.cols; i++) {
-    let v = i < values.length ? values[i] : '';
-    if (v === null || v === undefined) v = '';
-    const isNumeric = !!numeric[i];
-    if (isNumeric && v !== '') {
-      const n = Number(v);
-      out[i] = Number.isFinite(n) ? n : String(v);
-    } else if (typeof v === 'number' || typeof v === 'boolean') {
-      out[i] = v;
-    } else {
-      out[i] = String(v);
-    }
-  }
-
-  const book = databaseSheetBook_();
-  const sheet = book.getSheetByName(cfg.name);
-  if (!sheet) throw new Error('Sheet database tidak ditemukan: ' + cfg.name);
-
-  const lock = LockService.getScriptLock();
-  lock.waitLock(15000);
-  try {
-    const target = sheet.getRange(row,1,1,cfg.cols);
-    if (row > sheet.getLastRow() && cfg.styleRow > 0 && cfg.styleRow <= sheet.getMaxRows()) {
-      try { sheet.getRange(cfg.styleRow,1,1,cfg.cols).copyFormatToRange(sheet,1,cfg.cols,row,row); } catch (_) {}
-    }
-    target.setValues([out]);
-
-    const rev = databaseSheetTouchRevision_();
-    try {
-      databaseSheetEnsureLog_(book).appendRow([
-        new Date(), cfg.name, row, String(data.mode || 'SAVE'), String(admin || 'admin'),
-        'pagarnusasmksore.com', rev.revision, String(data.note || '')
-      ]);
-    } catch (_) {}
-
-    return {
-      ok:true,
-      source:'google-sheets',
-      spreadsheetId:PN_MAIN_DB_SPREADSHEET_ID,
-      sheet:cfg.name,
-      row:row,
-      revision:rev.revision,
-      updatedAt:rev.updatedAt,
-      message:'Data tersimpan langsung ke Google Sheets / Drive.',
-      version:'1'
     };
   } finally {
     lock.releaseLock();
