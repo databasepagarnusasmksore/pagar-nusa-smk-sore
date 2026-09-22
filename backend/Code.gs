@@ -48,6 +48,7 @@ const PN_EXCEL_HISTORY_KEEP = 2000;
 const PN_EXCEL_UPLOAD_PREFIX = 'PN_EXCEL_UPLOAD_V1_';
 const PN_EXCEL_UPLOAD_META_PREFIX = 'PN_EXCEL_UPLOAD_META_V1_';
 const PN_EXCEL_UPLOAD_TTL_MS = 15 * 60 * 1000;
+const PN_EXCEL_UPLOAD_CHUNK_BYTES = 1536 * 1024; // kelipatan 3 agar Base64 antar chunk bisa digabung aman
 const PN_BIODATA_SHEET_NAME = 'Data Biodata Siswa Anggota';
 const PN_BIODATA_LOG_SHEET_NAME = 'Log Perubahan Biodata';
 const PN_PORTAL_ACCOUNT_SHEET_NAME = 'Akun Portal Siswa';
@@ -2825,7 +2826,10 @@ function excelDatabaseUploadChunk_(data) {
   try { bytes = Utilities.base64Decode(raw); }
   catch (_) { throw new Error('Potongan upload database tidak valid.'); }
 
-  if (!bytes || !bytes.length || bytes.length > PN_EXCEL_CHUNK_BYTES) throw new Error('Ukuran potongan upload tidak valid.');
+  if (!bytes || !bytes.length || bytes.length > PN_EXCEL_UPLOAD_CHUNK_BYTES) throw new Error('Ukuran potongan upload tidak valid.');
+  if (index < Number(meta.total) - 1 && bytes.length !== PN_EXCEL_UPLOAD_CHUNK_BYTES) {
+    throw new Error('Ukuran potongan upload tidak sesuai urutan.');
+  }
 
   const folder = excelDatabaseFolder_();
   const chunkName = excelDatabaseUploadChunkName_(uploadId, index);
@@ -2833,9 +2837,12 @@ function excelDatabaseUploadChunk_(data) {
   while (existing.hasNext()) {
     try { existing.next().setTrashed(true); } catch (_) {}
   }
-  const f = folder.createFile(Utilities.newBlob(bytes, 'application/octet-stream', chunkName));
+
+  // Simpan Base64 sebagai teks. Chunk non-terakhir berukuran kelipatan 3 byte,
+  // sehingga seluruh string Base64 dapat digabung lalu didekode sekali saat commit.
+  const f = folder.createFile(Utilities.newBlob(raw, 'text/plain', chunkName));
   f.setDescription('Potongan sementara upload Database Excel Pagar Nusa.');
-  return {ok:true, uploadId:uploadId, index:index, bytes:bytes.length, total:Number(meta.total), version:'1'};
+  return {ok:true, uploadId:uploadId, index:index, bytes:bytes.length, total:Number(meta.total), version:'2'};
 }
 
 function excelDatabaseUploadCommit_(data) {
@@ -2862,24 +2869,27 @@ function excelDatabaseUploadCommit_(data) {
       }
     }
 
-    const all = [];
-    let totalBytes = 0;
+    let joinedBase64 = '';
     for (let i=0; i<Number(meta.total); i++) {
       const files = folder.getFilesByName(excelDatabaseUploadChunkName_(uploadId, i));
       if (!files.hasNext()) throw new Error('Potongan upload ' + (i+1) + ' belum tersedia.');
       const f = files.next();
-      const part = f.getBlob().getBytes();
-      if (!part.length) throw new Error('Potongan upload ' + (i+1) + ' kosong.');
-      totalBytes += part.length;
-      if (totalBytes > PN_EXCEL_MAX_BYTES) throw new Error('Database upload melebihi batas 20 MB.');
-      for (let j=0; j<part.length; j++) all.push(part[j]);
+      const partBase64 = String(f.getBlob().getDataAsString() || '').trim();
+      if (!partBase64) throw new Error('Potongan upload ' + (i+1) + ' kosong.');
+      joinedBase64 += partBase64;
+      if (joinedBase64.length > PN_EXCEL_MAX_BASE64_CHARS) throw new Error('Database upload melebihi batas 20 MB.');
     }
 
+    let bytes;
+    try { bytes = Utilities.base64Decode(joinedBase64); }
+    catch (_) { throw new Error('Gabungan potongan database tidak valid.'); }
+
+    const totalBytes = bytes.length;
     if (totalBytes !== Number(meta.size)) throw new Error('Ukuran database hasil upload tidak sesuai (' + totalBytes + ' dari ' + meta.size + ' byte).');
-    if (all.length < 4 || all[0] !== 80 || all[1] !== 75 || all[2] !== 3 || all[3] !== 4) throw new Error('File hasil upload bukan XLSM/XLSX yang valid.');
+    if (bytes.length < 4 || bytes[0] !== 80 || bytes[1] !== 75 || bytes[2] !== 3 || bytes[3] !== 4) throw new Error('File hasil upload bukan XLSM/XLSX yang valid.');
 
     const name = excelDatabaseSafeName_(meta.name);
-    const newFile = folder.createFile(Utilities.newBlob(all, excelDatabaseMime_(name), name));
+    const newFile = folder.createFile(Utilities.newBlob(bytes, excelDatabaseMime_(name), name));
     newFile.setDescription('Database Excel utama Pagar Nusa. Dikelola melalui pagarnusasmksore.com.');
     PropertiesService.getScriptProperties().setProperty(PN_EXCEL_FILE_PROPERTY, newFile.getId());
     if (current) excelDatabaseArchiveOld_(folder, current);
