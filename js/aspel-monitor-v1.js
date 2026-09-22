@@ -236,6 +236,8 @@ async function loadMonitor(force){
   setStatus('','Mengambil data terbaru Pemantauan Koordinator ASPEL...');
   try{
     if(savedValue(AUTH_KEY)!=='1')throw new Error('Sesi admin tidak aktif. Silakan login ulang.');
+    let blocked=false;try{blocked=sessionStorage.getItem('pnAspelBackendAuthMismatch')==='1'}catch(_){}
+    if(blocked&&!force)throw new Error('Password backend Apps Script belum disinkronkan dengan Login Admin website.');
     let token=savedValue(TOKEN_KEY);
     if(!token){
       if(typeof window.pnEnsureAdminServerSessionV1!=='function')throw new Error('Modul sesi admin belum siap. Refresh halaman.');
@@ -246,8 +248,14 @@ async function loadMonitor(force){
     renderMonitor();
     setStatus('ok',`Data berhasil dimuat • ${Number(monitorData.summary?.coordinatorCount||0)} koordinator • ${Number(monitorData.summary?.candidateCount||0)} data dampingan.`);
   }catch(err){
-    setStatus('err','Pemantauan belum dapat dimuat. '+String(err&&err.message||err||''));
-    const list=$('pnAspelList');if(list&&!monitorData)list.innerHTML='<div class="pnAspelEmpty">Keluar Admin lalu login sekali lagi jika sesi server belum aktif. Tidak perlu memasukkan password kedua.</div>';
+    const msg=String(err&&err.message||err||'');
+    if(/login admin verifikasi tidak valid|terlalu banyak percobaan login/i.test(msg)){
+      try{sessionStorage.setItem('pnAspelBackendAuthMismatch','1')}catch(_){}
+      setStatus('err','Pemantauan ASPEL belum dapat dibuka karena password backend Apps Script belum sama dengan password Login Admin website.');
+    }else{
+      setStatus('err','Pemantauan belum dapat dimuat. '+msg);
+    }
+    const list=$('pnAspelList');if(list&&!monitorData)list.innerHTML='<div class="pnAspelEmpty">Data ASPEL tetap privat. Sinkronkan password backend Apps Script satu kali, lalu klik MUAT ULANG. Tidak ada password kedua setelah itu.</div>';
   }finally{
     loading=false;
     if(refresh){refresh.disabled=false;refresh.textContent='↻ MUAT ULANG'}
