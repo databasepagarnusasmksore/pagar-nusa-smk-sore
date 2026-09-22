@@ -47,6 +47,7 @@ const PN_EXCEL_HISTORY_SHEET_NAME = 'Riwayat Perubahan Database Excel';
 const PN_EXCEL_HISTORY_KEEP = 2000;
 const PN_ONLINE_DATABASE_SPREADSHEET_ID = '1fg-zsfYnK6nCJZTOT-xzICkUOMgmMKTPOLWPtvHLOnM';
 const PN_ONLINE_DATABASE_VERSION_PROPERTY = 'PN_ONLINE_DATABASE_VERSION_V1';
+const PN_ONLINE_DATABASE_SHEET_VERSION_PREFIX = 'PN_ONLINE_DATABASE_SHEET_VERSION_V1_';
 const PN_ONLINE_DATABASE_ALLOWED_SHEETS = [
   'Data Siswa','Data Pengurus','Data Alumni','Kehadiran','Kenaikan Tingkat',
   'Prestasi','Iuran','Data Pelanggaran','Data SP 1-3','Data Keluar'
@@ -130,10 +131,11 @@ function doGet(e) {
       excelCloud:true,
       excelCloudVersion:'6',
       primaryDatabase:'google-sheets',
-      primaryDatabaseVersion:'4',
+      primaryDatabaseVersion:'5',
       primaryDatabaseSpreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
       onlineDatabase:true,
-      onlineDatabaseVersion:'3',
+      onlineDatabaseVersion:'4',
+      onlineDatabaseSheetsFirst:true,
       onlineDatabaseMode:'GOOGLE_SHEETS_PRIMARY',
       excelUiVisible:false,
       excelCloudChunkUpload:true,
@@ -2634,9 +2636,21 @@ function onlineDatabaseVersion_() {
   return String(PropertiesService.getScriptProperties().getProperty(PN_ONLINE_DATABASE_VERSION_PROPERTY) || '0');
 }
 
-function onlineDatabaseBumpVersion_() {
+function onlineDatabaseSheetVersion_(name) {
+  name = onlineDatabaseSheetAllowed_(name);
+  return String(PropertiesService.getScriptProperties().getProperty(PN_ONLINE_DATABASE_SHEET_VERSION_PREFIX + name) || '0');
+}
+
+function onlineDatabaseBumpVersion_(sheetNames) {
   const v = String(Date.now());
-  PropertiesService.getScriptProperties().setProperty(PN_ONLINE_DATABASE_VERSION_PROPERTY, v);
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty(PN_ONLINE_DATABASE_VERSION_PROPERTY, v);
+  const unique = Array.from(new Set((sheetNames || []).map(String).filter(Boolean)));
+  unique.forEach(function(name){
+    if (PN_ONLINE_DATABASE_ALLOWED_SHEETS.indexOf(name) >= 0) {
+      props.setProperty(PN_ONLINE_DATABASE_SHEET_VERSION_PREFIX + name, v);
+    }
+  });
   return v;
 }
 
@@ -2650,11 +2664,18 @@ function onlineDatabaseClientValue_(value) {
 
 function onlineDatabaseStatus_(data) {
   requireReviewAdmin_(data.token);
+  const requested = String(data.sheet || '').trim();
+  let sheetVersion = '';
+  if (requested && PN_ONLINE_DATABASE_ALLOWED_SHEETS.indexOf(requested) >= 0) {
+    sheetVersion = onlineDatabaseSheetVersion_(requested);
+  }
   return {
     ok:true,
     spreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
     version:onlineDatabaseVersion_(),
-    mode:'GOOGLE_SHEETS_PRIMARY',
+    sheet:requested,
+    sheetVersion:sheetVersion,
+    mode:'GOOGLE_SHEETS_PRIMARY_DIRECT',
     sheets:PN_ONLINE_DATABASE_ALLOWED_SHEETS.slice()
   };
 }
@@ -2678,7 +2699,8 @@ function onlineDatabaseSheetRead_(data) {
     cols:lastCol,
     values:values,
     version:onlineDatabaseVersion_(),
-    source:'GOOGLE_SHEETS'
+    sheetVersion:onlineDatabaseSheetVersion_(name),
+    source:'GOOGLE_SHEETS_DIRECT'
   };
 }
 
@@ -2743,19 +2765,18 @@ function onlineDatabaseSheetPatch_(data) {
 
       runs.forEach(function(items){
         const startCol = items[0].col;
-        const range = sheet.getRange(group.row,startCol,1,items.length);
-        const values = range.getValues()[0];
-        items.forEach(function(item,index){
-          values[index] = item.clear ? '' : item.value;
+        const values = items.map(function(item){
           count++;
+          return item.clear ? '' : item.value;
         });
-        range.setValues([values]);
+        sheet.getRange(group.row,startCol,1,items.length).setValues([values]);
         writeRanges++;
       });
     });
 
     SpreadsheetApp.flush();
-    const version = onlineDatabaseBumpVersion_();
+    const touchedSheets = Array.from(new Set(Object.keys(grouped).map(function(key){ return grouped[key].sheetName; })));
+    const version = onlineDatabaseBumpVersion_(touchedSheets);
     adminAudit_('ONLINE_DATABASE_PATCH','OK',count + ' sel Google Sheets disimpan dalam ' + writeRanges + ' range oleh ' + admin + '.');
     return {
       ok:true,
