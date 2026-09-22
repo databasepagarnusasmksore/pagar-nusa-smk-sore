@@ -130,11 +130,12 @@ function doGet(e) {
       excelCloud:true,
       excelCloudVersion:'6',
       primaryDatabase:'google-sheets',
-      primaryDatabaseVersion:'3',
+      primaryDatabaseVersion:'4',
       primaryDatabaseSpreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
       onlineDatabase:true,
-      onlineDatabaseVersion:'2',
+      onlineDatabaseVersion:'3',
       onlineDatabaseMode:'GOOGLE_SHEETS_PRIMARY',
+      excelUiVisible:false,
       excelCloudChunkUpload:true,
       adminNotificationCenter:true,
       adminNotificationCenterVersion:'1',
@@ -3297,7 +3298,8 @@ function runDailyDatabaseBackup() {
     const folder = backupFolder_();
     const stamp = backupStamp_();
     const sources = [
-      {id: PN_REG_SPREADSHEET_ID, label: 'Database Utama'},
+      {id: PN_ONLINE_DATABASE_SPREADSHEET_ID, label: 'Database Online Google Sheets'},
+      {id: PN_REG_SPREADSHEET_ID, label: 'Database Pendaftaran dan Sistem'},
       {id: PN_BIODATA_SPREADSHEET_ID, label: 'Biodata Siswa Anggota'}
     ];
     const created = [];
