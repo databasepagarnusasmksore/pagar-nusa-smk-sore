@@ -45,6 +45,10 @@ const PN_EXCEL_BACKUP_PREFIX = 'PN_EXCEL_BACKUP_';
 const PN_EXCEL_BACKUP_KEEP = 5;
 const PN_EXCEL_HISTORY_SHEET_NAME = 'Riwayat Perubahan Database Excel';
 const PN_EXCEL_HISTORY_KEEP = 2000;
+const PN_EXCEL_UPLOAD_PREFIX = 'PN_EXCEL_UPLOAD_V1_';
+const PN_EXCEL_UPLOAD_META_PREFIX = 'PN_EXCEL_UPLOAD_META_V1_';
+const PN_EXCEL_UPLOAD_TTL_MS = 15 * 60 * 1000;
+const PN_EXCEL_UPLOAD_CHUNK_BYTES = 1536 * 1024; // kelipatan 3 agar Base64 antar chunk bisa digabung aman
 const PN_BIODATA_SHEET_NAME = 'Data Biodata Siswa Anggota';
 const PN_BIODATA_LOG_SHEET_NAME = 'Log Perubahan Biodata';
 const PN_PORTAL_ACCOUNT_SHEET_NAME = 'Akun Portal Siswa';
@@ -118,7 +122,8 @@ function doGet(e) {
       backupAutomaticVersion:'1',
       backupRetentionDays:PN_BACKUP_RETENTION_DAYS,
       excelCloud:true,
-      excelCloudVersion:'4',
+      excelCloudVersion:'5',
+      excelCloudChunkUpload:true,
       adminNotificationCenter:true,
       adminNotificationCenterVersion:'1',
       adminPasswordConfigured:adminPasswordConfigured_(),
@@ -389,6 +394,34 @@ function doPost(e) {
       return iframeResult_(result, 'pn-database');
     }
 
+    if (action === 'databaseUploadBegin') {
+      result = excelDatabaseUploadBegin_(data);
+      result.rid = String(data.rid || '');
+      contentRememberResult_(data.rid, result);
+      return iframeResult_(result, 'pn-database');
+    }
+
+    if (action === 'databaseUploadChunk') {
+      result = excelDatabaseUploadChunk_(data);
+      result.rid = String(data.rid || '');
+      contentRememberResult_(data.rid, result);
+      return iframeResult_(result, 'pn-database');
+    }
+
+    if (action === 'databaseUploadCommit') {
+      result = excelDatabaseUploadCommit_(data);
+      result.rid = String(data.rid || '');
+      contentRememberResult_(data.rid, result);
+      return iframeResult_(result, 'pn-database');
+    }
+
+    if (action === 'databaseUploadAbort') {
+      result = excelDatabaseUploadAbort_(data);
+      result.rid = String(data.rid || '');
+      contentRememberResult_(data.rid, result);
+      return iframeResult_(result, 'pn-database');
+    }
+
     if (action === 'databaseSave') {
       result = excelDatabaseSave_(data);
       result.rid = String(data.rid || '');
@@ -607,8 +640,8 @@ function doPost(e) {
       rid:String(data.rid || ''),
       message:String(err && err.message || err)
     };
-    if (['databaseManifest','databaseChunk','databaseGet','databaseSave','databaseHistoryAdd'].includes(action)) {
-      if (['databaseManifest','databaseSave','databaseHistoryAdd'].includes(action)) contentRememberResult_(data.rid, result);
+    if (['databaseManifest','databaseChunk','databaseGet','databaseSave','databaseHistoryAdd','databaseUploadBegin','databaseUploadChunk','databaseUploadCommit','databaseUploadAbort'].includes(action)) {
+      if (['databaseManifest','databaseSave','databaseHistoryAdd','databaseUploadBegin','databaseUploadChunk','databaseUploadCommit','databaseUploadAbort'].includes(action)) contentRememberResult_(data.rid, result);
       return iframeResult_(result, 'pn-database');
     }
     if (action === 'biodataGet' || action === 'biodataAspel' || action === 'biodataUpdate') {
@@ -2596,15 +2629,15 @@ function excelDatabaseMime_(name) {
 
 function excelDatabaseMeta_(file) {
   if (!file) return {exists:false};
-  const blob = file.getBlob();
   let size = 0;
   try { size = Number(file.getSize()) || 0; } catch (_) {}
-  if (!size) size = blob.getBytes().length;
+  let mimeType = '';
+  try { mimeType = String(file.getMimeType() || ''); } catch (_) {}
   return {
     exists:true,
     fileId:file.getId(),
     name:file.getName(),
-    mimeType:blob.getContentType() || excelDatabaseMime_(file.getName()),
+    mimeType:mimeType || excelDatabaseMime_(file.getName()),
     size:size,
     updatedAt:Utilities.formatDate(file.getLastUpdated(), 'Asia/Jakarta', "yyyy-MM-dd'T'HH:mm:ss")
   };
@@ -2702,6 +2735,185 @@ function excelDatabaseArchiveOld_(folder, file) {
       try { f.setTrashed(true); } catch (_) {}
     });
   } catch (_) {}
+}
+
+function excelDatabaseUploadMetaKey_(uploadId) {
+  return PN_EXCEL_UPLOAD_META_PREFIX + String(uploadId || '');
+}
+
+function excelDatabaseUploadChunkName_(uploadId, index) {
+  return PN_EXCEL_UPLOAD_PREFIX + String(uploadId || '') + '_' + String(index) + '.part';
+}
+
+function excelDatabaseUploadReadMeta_(uploadId) {
+  uploadId = String(uploadId || '').trim();
+  if (!/^[A-Fa-f0-9]{64}$/.test(uploadId)) throw new Error('ID upload database tidak valid.');
+  const raw = PropertiesService.getScriptProperties().getProperty(excelDatabaseUploadMetaKey_(uploadId));
+  if (!raw) throw new Error('Sesi upload database sudah tidak tersedia. Silakan simpan ulang.');
+  let meta = null;
+  try { meta = JSON.parse(raw); } catch (_) {}
+  if (!meta || Number(meta.createdAt || 0) < Date.now() - PN_EXCEL_UPLOAD_TTL_MS) {
+    PropertiesService.getScriptProperties().deleteProperty(excelDatabaseUploadMetaKey_(uploadId));
+    throw new Error('Sesi upload database sudah kedaluwarsa. Silakan simpan ulang.');
+  }
+  return meta;
+}
+
+function excelDatabaseUploadCleanup_(uploadId, total) {
+  const folder = excelDatabaseFolder_();
+  total = Math.max(0, Math.min(64, Number(total || 0)));
+  for (let i=0; i<total; i++) {
+    const files = folder.getFilesByName(excelDatabaseUploadChunkName_(uploadId, i));
+    while (files.hasNext()) {
+      try { files.next().setTrashed(true); } catch (_) {}
+    }
+  }
+  try { PropertiesService.getScriptProperties().deleteProperty(excelDatabaseUploadMetaKey_(uploadId)); } catch (_) {}
+}
+
+function excelDatabaseUploadBegin_(data) {
+  const admin = requireReviewAdmin_(data.token);
+  const name = excelDatabaseSafeName_(data.name);
+  const size = Math.floor(Number(data.size || 0));
+  const total = Math.floor(Number(data.total || 0));
+  const initialOnly = String(data.initialOnly || '') === '1';
+  const expectedFileId = String(data.expectedFileId || '').trim();
+
+  if (!Number.isFinite(size) || size < 1 || size > PN_EXCEL_MAX_BYTES) throw new Error('Ukuran upload database tidak valid.');
+  if (!Number.isFinite(total) || total < 1 || total > 64) throw new Error('Jumlah potongan upload database tidak valid.');
+
+  const current = excelDatabaseCurrentFile_();
+  if (initialOnly && current) {
+    const m = excelDatabaseMeta_(current);
+    return {ok:false, code:'MASTER_EXISTS', exists:true, fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Database master sudah tersedia.'};
+  }
+  if (!initialOnly && current) {
+    const m = excelDatabaseMeta_(current);
+    if (!expectedFileId) {
+      return {ok:false, code:'MASTER_VERSION_REQUIRED', exists:true, fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Versi master belum dikenali. Muat ulang database cloud terlebih dahulu.'};
+    }
+    if (expectedFileId !== current.getId()) {
+      return {ok:false, code:'MASTER_CHANGED', exists:true, fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Master database sudah berubah dari perangkat lain.'};
+    }
+  }
+
+  const uploadId = adminGenerateSecret_();
+  const meta = {
+    uploadId:uploadId,
+    name:name,
+    size:size,
+    total:total,
+    initialOnly:initialOnly,
+    expectedFileId:expectedFileId,
+    createdAt:Date.now(),
+    admin:String(admin || '')
+  };
+  PropertiesService.getScriptProperties().setProperty(excelDatabaseUploadMetaKey_(uploadId), JSON.stringify(meta));
+  return {ok:true, uploadId:uploadId, total:total, size:size, chunkBytes:PN_EXCEL_UPLOAD_CHUNK_BYTES, version:'2'};
+}
+
+function excelDatabaseUploadChunk_(data) {
+  requireReviewAdmin_(data.token);
+  const uploadId = String(data.uploadId || '').trim();
+  const meta = excelDatabaseUploadReadMeta_(uploadId);
+  const index = Math.floor(Number(data.index));
+  if (!Number.isFinite(index) || index < 0 || index >= Number(meta.total)) throw new Error('Index potongan upload tidak valid.');
+
+  let raw = String(data.base64 || '').trim().replace(/^data:[^;]+;base64,/i, '');
+  if (!raw) throw new Error('Potongan upload kosong.');
+
+  let bytes;
+  try { bytes = Utilities.base64Decode(raw); }
+  catch (_) { throw new Error('Potongan upload database tidak valid.'); }
+
+  if (!bytes || !bytes.length || bytes.length > PN_EXCEL_UPLOAD_CHUNK_BYTES) throw new Error('Ukuran potongan upload tidak valid.');
+  if (index < Number(meta.total) - 1 && bytes.length !== PN_EXCEL_UPLOAD_CHUNK_BYTES) {
+    throw new Error('Ukuran potongan upload tidak sesuai urutan.');
+  }
+
+  const folder = excelDatabaseFolder_();
+  const chunkName = excelDatabaseUploadChunkName_(uploadId, index);
+  const existing = folder.getFilesByName(chunkName);
+  while (existing.hasNext()) {
+    try { existing.next().setTrashed(true); } catch (_) {}
+  }
+
+  // Simpan Base64 sebagai teks. Chunk non-terakhir berukuran kelipatan 3 byte,
+  // sehingga seluruh string Base64 dapat digabung lalu didekode sekali saat commit.
+  const f = folder.createFile(Utilities.newBlob(raw, 'text/plain', chunkName));
+  f.setDescription('Potongan sementara upload Database Excel Pagar Nusa.');
+  return {ok:true, uploadId:uploadId, index:index, bytes:bytes.length, total:Number(meta.total), version:'2'};
+}
+
+function excelDatabaseUploadCommit_(data) {
+  const admin = requireReviewAdmin_(data.token);
+  const uploadId = String(data.uploadId || '').trim();
+  const meta = excelDatabaseUploadReadMeta_(uploadId);
+  const folder = excelDatabaseFolder_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const current = excelDatabaseCurrentFile_();
+    if (meta.initialOnly && current) {
+      const m = excelDatabaseMeta_(current);
+      return {ok:false, code:'MASTER_EXISTS', fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Database master sudah tersedia.'};
+    }
+    if (!meta.initialOnly && current) {
+      const m = excelDatabaseMeta_(current);
+      if (!meta.expectedFileId) {
+        return {ok:false, code:'MASTER_VERSION_REQUIRED', fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Versi master belum dikenali.'};
+      }
+      if (String(meta.expectedFileId) !== current.getId()) {
+        return {ok:false, code:'MASTER_CHANGED', fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Master database berubah selama proses upload. Upload dibatalkan.'};
+      }
+    }
+
+    let joinedBase64 = '';
+    for (let i=0; i<Number(meta.total); i++) {
+      const files = folder.getFilesByName(excelDatabaseUploadChunkName_(uploadId, i));
+      if (!files.hasNext()) throw new Error('Potongan upload ' + (i+1) + ' belum tersedia.');
+      const f = files.next();
+      const partBase64 = String(f.getBlob().getDataAsString() || '').trim();
+      if (!partBase64) throw new Error('Potongan upload ' + (i+1) + ' kosong.');
+      joinedBase64 += partBase64;
+      if (joinedBase64.length > PN_EXCEL_MAX_BASE64_CHARS) throw new Error('Database upload melebihi batas 20 MB.');
+    }
+
+    let bytes;
+    try { bytes = Utilities.base64Decode(joinedBase64); }
+    catch (_) { throw new Error('Gabungan potongan database tidak valid.'); }
+
+    const totalBytes = bytes.length;
+    if (totalBytes !== Number(meta.size)) throw new Error('Ukuran database hasil upload tidak sesuai (' + totalBytes + ' dari ' + meta.size + ' byte).');
+    if (bytes.length < 4 || bytes[0] !== 80 || bytes[1] !== 75 || bytes[2] !== 3 || bytes[3] !== 4) throw new Error('File hasil upload bukan XLSM/XLSX yang valid.');
+
+    const name = excelDatabaseSafeName_(meta.name);
+    const newFile = folder.createFile(Utilities.newBlob(bytes, excelDatabaseMime_(name), name));
+    newFile.setDescription('Database Excel utama Pagar Nusa. Dikelola melalui pagarnusasmksore.com.');
+    PropertiesService.getScriptProperties().setProperty(PN_EXCEL_FILE_PROPERTY, newFile.getId());
+    if (current) excelDatabaseArchiveOld_(folder, current);
+
+    const saved = excelDatabaseMeta_(newFile);
+    adminAudit_('EXCEL_DATABASE_CHUNK_SAVE','OK','Master Excel chunk tersimpan oleh ' + admin + ': ' + saved.name + ' (' + saved.size + ' byte).');
+    excelDatabaseUploadCleanup_(uploadId, meta.total);
+
+    saved.ok = true;
+    saved.version = '2';
+    saved.message = current ? 'Database cloud berhasil disinkronkan.' : 'Database cloud berhasil dibuat.';
+    return saved;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function excelDatabaseUploadAbort_(data) {
+  requireReviewAdmin_(data.token);
+  const uploadId = String(data.uploadId || '').trim();
+  let meta = null;
+  try { meta = excelDatabaseUploadReadMeta_(uploadId); } catch (_) {}
+  excelDatabaseUploadCleanup_(uploadId, meta ? meta.total : Number(data.total || 0));
+  return {ok:true, uploadId:uploadId, message:'Upload sementara dibersihkan.'};
 }
 
 function excelDatabaseSave_(data) {
