@@ -4,7 +4,7 @@
 const ENDPOINT='https://script.google.com/macros/s/AKfycbyJi_83lJ11JshOLCzIBRMX6fEi-y9UGR9eYULuqH1BivdxeqcgMB0l2ehWBIgaad8Oyw/exec';
 const TOKEN_KEY='pnReviewAdminToken';
 const AUTH_KEY='pnAdminAuth';
-function persistentGet(key){try{return localStorage.getItem(key)||sessionStorage.getItem(key)||''}catch(_){try{return sessionStorage.getItem(key)||''}catch(__){return''}}}
+function persistentGet(key){try{return sessionStorage.getItem(key)||localStorage.getItem(key)||''}catch(_){try{return sessionStorage.getItem(key)||''}catch(__){return''}}}
 function persistentSet(key,value){try{localStorage.setItem(key,String(value))}catch(_){};try{sessionStorage.setItem(key,String(value))}catch(_){}}
 function persistentRemove(key){try{localStorage.removeItem(key)}catch(_){};try{sessionStorage.removeItem(key)}catch(_){}}
 (function restorePersistentAdmin(){const a=persistentGet(AUTH_KEY),t=persistentGet(TOKEN_KEY);if(a==='1')persistentSet(AUTH_KEY,'1');if(t)persistentSet(TOKEN_KEY,t)})();
@@ -171,8 +171,14 @@ async function loadRows({quiet=false}={}){
     online=false;
     const msg=String(err&&err.message||'');
     if(/sesi admin sudah dinonaktifkan|sesi verifikasi admin tidak valid|sesi admin perangkat tidak ditemukan/i.test(msg)){
-      // Sesi server boleh putus, tetapi jangan pernah mengeluarkan admin dari area database otomatis.
-      // AUTH_KEY tetap dipertahankan; admin hanya keluar melalui tombol LOGOUT.
+      // Saat connect() masih berjalan, server mungkin belum sempat mencatat token.
+      // Jangan hapus token baru pada percobaan awal; biarkan retry berikutnya memakainya.
+      if(connecting){
+        persistentSet(AUTH_KEY,'1');
+        setState('loading','Menyelesaikan sesi admin otomatis...');
+        return false;
+      }
+      // Di luar proses connect, sesi yang benar-benar kedaluwarsa boleh dibersihkan.
       persistentRemove(TOKEN_KEY);
       persistentSet(AUTH_KEY,'1');
     }
@@ -187,10 +193,11 @@ async function connect(username,password){
   connecting=true;
   const token=randomToken();
   persistentSet(TOKEN_KEY,token);
+  window.dispatchEvent(new CustomEvent('pn:admin-session-starting',{detail:{tokenReady:true}}));
   setState('loading','Mengesahkan akses admin perangkat ke database pusat...');
   try{
     await postHidden('reviewAdminLogin',{username,password,token},25000);
-    for(const wait of [250,700,1600,3000]){
+    for(const wait of [250,500,900,1500,2400]){
       await sleep(wait);
       if(await loadRows({quiet:true}))return true;
     }

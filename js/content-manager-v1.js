@@ -257,7 +257,18 @@ async function maybeSeed(){
 }
 
 async function loadAdmin(retry=0){
-  if(!token()){setStatus('Akses konten belum aktif. Menunggu sesi login admin...');updateAccessButton();return false}
+  if(!token()){
+    const adminActive=(()=>{try{return localStorage.getItem('pnAdminAuth')==='1'||sessionStorage.getItem('pnAdminAuth')==='1'}catch(_){return false}})();
+    if(adminActive&&retry<6){
+      setStatus('Menyambungkan akses konten otomatis...');
+      updateAccessButton();
+      await sleep([250,400,650,900,1300,1800][retry]||800);
+      return loadAdmin(retry+1);
+    }
+    setStatus(adminActive?'Akses konten belum tersambung. Silakan klik MUAT ULANG.':'Login admin diperlukan untuk akses konten.');
+    updateAccessButton();
+    return false;
+  }
   try{
     let r=await jsonp('contentAdminList',{token:token()},18000);
     if(!r.ok)throw new Error(r.message||'Sesi admin konten tidak valid.');
@@ -338,6 +349,7 @@ function boot(){
   setTimeout(installAdmin,500);
   setTimeout(installAdmin,1500);
   window.addEventListener('online',()=>{if(token())loadAdmin();else loadPublic()});
+  window.addEventListener('pn:admin-session-starting',()=>{installAdmin();updateAccessButton();setStatus('Menyambungkan akses konten otomatis...');setTimeout(()=>void loadAdmin(),300)});
   window.addEventListener('pn:admin-session-ready',()=>{installAdmin();updateAccessButton();if(token())void loadAdmin()});
   window.addEventListener('storage',e=>{if(e.key===TOKEN_KEY){updateAccessButton();if(token())void loadAdmin()}});
 }
