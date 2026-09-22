@@ -116,12 +116,44 @@ async function loadPublicState(){
 function token(){try{return sessionStorage.getItem(TOKEN_KEY)||localStorage.getItem(TOKEN_KEY)||''}catch(_){try{return sessionStorage.getItem(TOKEN_KEY)||''}catch(__){return''}}}
 function adminActive(){try{return localStorage.getItem('pnAdminAuth')==='1'||sessionStorage.getItem('pnAdminAuth')==='1'}catch(_){return false}}
 async function ensureToken(){const t=token();if(t)return t;if(typeof window.pnEnsureAdminServerSessionV1!=='function')throw new Error('Modul sesi admin belum siap. Refresh halaman.');return await window.pnEnsureAdminServerSessionV1()}
+function clearServerToken(){try{sessionStorage.removeItem(TOKEN_KEY)}catch(_){};try{localStorage.removeItem(TOKEN_KEY)}catch(_){}}
+async function ensureScheduleToken(){
+  if(!adminActive())throw new Error('Silakan Login Admin terlebih dahulu.');
+  let t=token();
+  if(t){
+    try{
+      const check=await jsonp('contentAdminList',{token:t},12000);
+      if(check&&check.ok)return t;
+    }catch(_){}
+    clearServerToken();
+  }
+  t=await ensureToken();
+  if(!t)throw new Error('Sesi server Admin belum berhasil disiapkan.');
+  const verify=await jsonp('contentAdminList',{token:t},12000);
+  if(!verify||!verify.ok)throw new Error(verify?.message||'Sesi server Admin belum valid.');
+  return t;
+}
+async function openSchedulePage(ev){
+  if(ev)ev.preventDefault();
+  const link=$('pnCbtScheduleLink'),help=$('pnCbtLinkHelp');
+  if(link){link.style.pointerEvents='none';link.style.opacity='.65';link.textContent='MENYIAPKAN SESI...'}
+  if(help)help.textContent='Menyiapkan sesi Admin untuk halaman Jadwal CBT...';
+  try{
+    await ensureScheduleToken();
+    if(help)help.textContent='✓ Sesi Admin siap. Membuka Jadwal CBT...';
+    location.href='jadwal-cbt.html';
+  }catch(err){
+    const msg=err?.message||'Sesi Admin belum siap.';
+    if(help)help.textContent=msg;
+    if(link){link.style.pointerEvents='';link.style.opacity='';link.textContent='🗓 ATUR PESERTA / JADWAL'}
+  }
+}
 
 function switchHtml(){return `
   <div id="pnCbtAdminSwitch" class="pnCbtSwitchBox">
     <div class="pnCbtSwitchInfo"><strong>📝 PORTAL CBT ONLINE</strong><span id="pnCbtSwitchHelp">Atur apakah Portal CBT ditampilkan untuk anggota.</span></div>
     <div class="pnCbtSwitchActions"><span id="pnCbtSwitchBadge" class="pnCbtSwitchBadge">MEMUAT</span><button id="pnCbtSwitchOn" class="pnCbtSwitchBtn on" type="button">ON</button><button id="pnCbtSwitchOff" class="pnCbtSwitchBtn off" type="button">OFF</button></div>
-    <div class="pnCbtLinkBox"><label for="pnCbtFormUrl">🔗 LINK GOOGLE FORM CBT</label><div class="pnCbtLinkRow"><input id="pnCbtFormUrl" class="pnCbtLinkInput" type="url" inputmode="url" placeholder="https://forms.gle/... atau https://docs.google.com/forms/..."><button id="pnCbtSaveLink" class="pnCbtLinkSave" type="button">SIMPAN LINK</button><a class="pnCbtScheduleLink" href="jadwal-cbt.html">🗓 ATUR PESERTA / JADWAL</a></div><span id="pnCbtLinkHelp" class="pnCbtLinkHelp">Tempel link Google Form baru lalu klik SIMPAN LINK.</span></div>
+    <div class="pnCbtLinkBox"><label for="pnCbtFormUrl">🔗 LINK GOOGLE FORM CBT</label><div class="pnCbtLinkRow"><input id="pnCbtFormUrl" class="pnCbtLinkInput" type="url" inputmode="url" placeholder="https://forms.gle/... atau https://docs.google.com/forms/..."><button id="pnCbtSaveLink" class="pnCbtLinkSave" type="button">SIMPAN LINK</button><a id="pnCbtScheduleLink" class="pnCbtScheduleLink" href="jadwal-cbt.html">🗓 ATUR PESERTA / JADWAL</a></div><span id="pnCbtLinkHelp" class="pnCbtLinkHelp">Tempel link Google Form baru lalu klik SIMPAN LINK.</span></div>
   </div>`}
 
 function installAdminSwitch(){
@@ -137,6 +169,7 @@ function installAdminSwitch(){
   $('pnCbtSwitchOn').onclick=()=>saveState('ON');
   $('pnCbtSwitchOff').onclick=()=>saveState('OFF');
   $('pnCbtSaveLink').onclick=saveLink;
+  $('pnCbtScheduleLink').onclick=openSchedulePage;
   renderSwitchState();
   loadAdminState();
   return true;
