@@ -103,14 +103,28 @@ function closeAdminLogin(){document.getElementById('loginModal')?.classList.add(
 window.__pnCanonicalAdminLoginV1=true;
 async function submitAdminLogin(ev){
   if(ev)ev.preventDefault();
-  const u=document.getElementById('adminUser')?.value.trim()||'',p=document.getElementById('adminPass')?.value||'',err=document.getElementById('loginError');
-  const hash=await sha256Hex(p);
-  if(u===PN_ADMIN_USER&&hash===PN_ADMIN_PASS_HASH){
+  const u=document.getElementById('adminUser')?.value.trim()||'';
+  const p=document.getElementById('adminPass')?.value||'';
+  const err=document.getElementById('loginError');
+  const submit=document.querySelector('#loginModal .loginSubmit');
+  if(err)err.textContent='';
+  if(!u||!p){if(err)err.textContent='Username dan password admin wajib diisi.';return false}
+  if(typeof window.pnAdminServerAuthenticateV1!=='function'){
+    if(err)err.textContent='Modul login server belum siap. Silakan refresh halaman.';
+    return false;
+  }
+  if(submit){submit.disabled=true;submit.textContent='MENGHUBUNGKAN...'}
+  try{
+    await window.pnAdminServerAuthenticateV1(u,p);
     localStorage.setItem('pnAdminAuth','1');sessionStorage.setItem('pnAdminAuth','1');
-    closeAdminLogin();enterAdmin(true);
-    try{window.dispatchEvent(new CustomEvent('pn:admin-authenticated',{detail:{username:u,password:p}}))}catch(_){}
     const passEl=document.getElementById('adminPass');if(passEl)passEl.value='';
-  }else{if(err)err.textContent='Username atau password admin salah.'}
+    closeAdminLogin();enterAdmin(true);
+    try{window.dispatchEvent(new CustomEvent('pn:admin-login-success',{detail:{server:true}}))}catch(_){}
+  }catch(e){
+    if(err)err.textContent=String(e&&e.message||e||'Login admin gagal.');
+  }finally{
+    if(submit){submit.disabled=false;submit.textContent='MASUK'}
+  }
   return false
 }
 function setAdminControls(show){

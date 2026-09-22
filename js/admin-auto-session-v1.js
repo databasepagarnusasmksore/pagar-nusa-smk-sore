@@ -1,13 +1,14 @@
 (()=>{
 'use strict';
 
-if(window.__pnCentralAdminAutoSessionV1)return;
+if(window.__pnCentralAdminAutoSessionV2)return;
+window.__pnCentralAdminAutoSessionV2=true;
 window.__pnCentralAdminAutoSessionV1=true;
 
 const ENDPOINT='https://script.google.com/macros/s/AKfycbyJi_83lJ11JshOLCzIBRMX6fEi-y9UGR9eYULuqH1BivdxeqcgMB0l2ehWBIgaad8Oyw/exec';
 const TOKEN_KEY='pnReviewAdminToken';
 const AUTH_KEY='pnAdminAuth';
-let creating=false;
+let authenticating=null;
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -24,32 +25,31 @@ function randomToken(){
   crypto.getRandomValues(a);
   return Array.from(a,b=>b.toString(16).padStart(2,'0')).join('');
 }
-function jsonp(action,payload={},timeout=9000){
+function jsonpRaw(action,payload={},timeout=9000){
   return new Promise((resolve,reject)=>{
-    const cb='pnAutoSession_'+Date.now()+'_'+Math.random().toString(36).slice(2).replace(/\W/g,'');
+    const cb='pnAdminAuthCb_'+Date.now()+'_'+Math.random().toString(36).slice(2).replace(/\W/g,'');
     const script=document.createElement('script');
     let done=false;
     const cleanup=()=>{clearTimeout(timer);try{delete window[cb]}catch(_){}script.remove()};
-    window[cb]=data=>{if(done)return;done=true;cleanup();data&&data.ok?resolve(data):reject(new Error(data?.message||'Sesi admin belum siap.'))};
+    window[cb]=data=>{if(done)return;done=true;cleanup();resolve(data||{})};
     const q=new URLSearchParams({action,callback:cb,_:String(Date.now())});
     Object.entries(payload).forEach(([k,v])=>q.set(k,String(v??'')));
     script.src=ENDPOINT+'?'+q.toString();
     script.async=true;
-    script.onerror=()=>{if(done)return;done=true;cleanup();reject(new Error('Server sesi admin tidak dapat dihubungi.'))};
-    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('Server sesi admin terlalu lama merespons.'))},timeout);
+    script.onerror=()=>{if(done)return;done=true;cleanup();reject(new Error('Server admin tidak dapat dihubungi.'))};
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('Server admin terlalu lama merespons.'))},timeout);
     document.head.appendChild(script);
   });
 }
 function postLogin(username,password,token){
-  const rid='pn-auto-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+  const rid='pn-login-'+Date.now()+'-'+Math.random().toString(36).slice(2);
   const frame=document.createElement('iframe');
-  frame.name='pnAutoSessionFrame_'+rid.replace(/\W/g,'');
+  frame.name='pnAdminLoginFrame_'+rid.replace(/\W/g,'');
   frame.style.display='none';
   frame.setAttribute('aria-hidden','true');
   const form=document.createElement('form');
   form.method='POST';form.action=ENDPOINT;form.target=frame.name;form.style.display='none';
-  const data={action:'contentAdminLogin',rid,username,password,token};
-  Object.entries(data).forEach(([name,value])=>{
+  Object.entries({action:'contentAdminLogin',rid,username,password,token}).forEach(([name,value])=>{
     const input=document.createElement('input');
     input.type='hidden';input.name=name;input.value=String(value??'');
     form.appendChild(input);
@@ -57,44 +57,67 @@ function postLogin(username,password,token){
   document.body.append(frame,form);
   form.submit();
   form.remove();
-  setTimeout(()=>frame.remove(),15000);
+  setTimeout(()=>frame.remove(),20000);
+  return rid;
 }
-async function createSession(username,password){
-  if(creating)return false;
-  creating=true;
-  const token=randomToken();
-  save(AUTH_KEY,'1');
-  save(TOKEN_KEY,token);
-  try{
-    window.dispatchEvent(new CustomEvent('pn:admin-session-starting',{detail:{automatic:true}}));
-    postLogin(username,password,token);
+async function authenticate(username,password){
+  const user=String(username||'').trim();
+  const pass=String(password||'');
+  if(!user||!pass)throw new Error('Username dan password admin wajib diisi.');
+  if(authenticating)return authenticating;
+
+  authenticating=(async()=>{
+    remove(TOKEN_KEY);
+    const requestedToken=randomToken();
+    const rid=postLogin(user,pass,requestedToken);
+    let result=null;
     let lastError=null;
-    for(const wait of [250,450,700,1100,1700,2500,3500]){
+
+    for(const wait of [200,300,450,650,900,1200,1600,2200,3000]){
       await sleep(wait);
       try{
-        await jsonp('contentAdminList',{token},7000);
-        save(TOKEN_KEY,token);
-        window.dispatchEvent(new CustomEvent('pn:admin-session-ready',{detail:{ok:true,automatic:true}}));
-        return true;
+        const r=await jsonpRaw('contentResult',{rid},7000);
+        if(r&&r.pending)continue;
+        result=r;
+        break;
       }catch(err){lastError=err}
     }
-    throw lastError||new Error('Sesi admin belum berhasil dibuat.');
+
+    if(!result){
+      throw lastError||new Error('Server belum menyelesaikan login admin.');
+    }
+    if(!result.ok){
+      throw new Error(String(result.message||'Username atau password admin tidak valid.'));
+    }
+
+    const token=String(result.token||requestedToken);
+    if(!/^[A-Fa-f0-9]{64}$/.test(token)){
+      throw new Error('Token sesi admin dari server tidak valid.');
+    }
+
+    const verify=await jsonpRaw('contentAdminList',{token},9000);
+    if(!verify||!verify.ok){
+      throw new Error(String(verify&&verify.message||'Sesi admin belum aktif.'));
+    }
+
+    save(TOKEN_KEY,token);
+    save(AUTH_KEY,'1');
+    window.dispatchEvent(new CustomEvent('pn:admin-session-ready',{detail:{ok:true,automatic:true}}));
+    return {ok:true,token};
+  })();
+
+  try{
+    return await authenticating;
   }catch(err){
     remove(TOKEN_KEY);
-    window.dispatchEvent(new CustomEvent('pn:admin-session-error',{detail:{message:String(err?.message||err||'Gagal membuat sesi admin otomatis.')}}));
-    return false;
+    window.dispatchEvent(new CustomEvent('pn:admin-session-error',{detail:{message:String(err&&err.message||err||'Login admin gagal.')}}));
+    throw err;
   }finally{
-    creating=false;
+    authenticating=null;
   }
 }
 
-window.addEventListener('pn:admin-authenticated',event=>{
-  const detail=event&&event.detail||{};
-  const username=String(detail.username||'').trim();
-  const password=String(detail.password||'');
-  if(!username||!password)return;
-  void createSession(username,password);
-});
+window.pnAdminServerAuthenticateV1=authenticate;
 
 window.addEventListener('storage',e=>{
   if(e.key===AUTH_KEY&&e.newValue!=='1')remove(TOKEN_KEY);
