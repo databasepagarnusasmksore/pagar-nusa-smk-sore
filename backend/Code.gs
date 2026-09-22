@@ -118,7 +118,7 @@ function doGet(e) {
       backupAutomaticVersion:'1',
       backupRetentionDays:PN_BACKUP_RETENTION_DAYS,
       excelCloud:true,
-      excelCloudVersion:'2',
+      excelCloudVersion:'3',
       adminNotificationCenter:true,
       adminNotificationCenterVersion:'1',
       adminPasswordConfigured:adminPasswordConfigured_(),
@@ -2726,6 +2726,38 @@ function excelDatabaseSave_(data) {
   lock.waitLock(30000);
   try {
     const oldFile = excelDatabaseCurrentFile_();
+    const expectedFileId = String(data.expectedFileId || '').trim();
+
+    // Optimistic concurrency: browser hanya boleh mengganti master yang memang
+    // terakhir dibacanya. Ini mencegah tab/perangkat lama menimpa data terbaru.
+    if (!initialOnly && oldFile) {
+      const oldMeta = excelDatabaseMeta_(oldFile);
+      if (!expectedFileId) {
+        return {
+          ok:false,
+          code:'MASTER_VERSION_REQUIRED',
+          exists:true,
+          fileId:oldMeta.fileId,
+          name:oldMeta.name,
+          size:oldMeta.size,
+          updatedAt:oldMeta.updatedAt,
+          message:'Versi master belum dikenali perangkat ini. Muat ulang database cloud sebelum menyimpan.'
+        };
+      }
+      if (expectedFileId !== oldFile.getId()) {
+        return {
+          ok:false,
+          code:'MASTER_CHANGED',
+          exists:true,
+          fileId:oldMeta.fileId,
+          name:oldMeta.name,
+          size:oldMeta.size,
+          updatedAt:oldMeta.updatedAt,
+          message:'Master database sudah berubah dari perangkat/tab lain. Upload lama dibatalkan agar data terbaru tidak tertimpa.'
+        };
+      }
+    }
+
     if (initialOnly && oldFile) {
       const oldMeta = excelDatabaseMeta_(oldFile);
       return {
