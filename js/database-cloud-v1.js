@@ -52,7 +52,7 @@ function pnDatabasePanelOpen(){
 }
 
 function pnDbToken(){
-  try{return localStorage.getItem(PN_DB_TOKEN_KEY)||sessionStorage.getItem(PN_DB_TOKEN_KEY)||''}
+  try{return localStorage.getItem(PN_DB_TOKEN_KEY)||sessionStorage.getItem(PN_DB_TOKEN_KEY)||localStorage.getItem('pnAdminDeviceSessionV1')||''}
   catch(_){try{return sessionStorage.getItem(PN_DB_TOKEN_KEY)||''}catch(__){return''}}
 }
 function pnOnlineCellKey(sheet,address){return String(sheet||'')+'!'+String(address||'').toUpperCase()}
@@ -92,10 +92,38 @@ window.pnRecordOnlineCellPatch=function(sheet,address,value,clear=false){
   pnPersistOnlinePatches();
 };
 
+let pnOnlineReauthPrompted=false;
+function pnAdminUiActive(){
+  try{return localStorage.getItem('pnAdminAuth')==='1'||sessionStorage.getItem('pnAdminAuth')==='1'}catch(_){return false}
+}
+function pnPromptGoogleSheetsReauth(message=''){
+  if(pnOnlineReauthPrompted)return;
+  pnOnlineReauthPrompted=true;
+  try{
+    if(typeof window.openAdminLogin==='function')window.openAdminLogin();
+    const err=document.getElementById('loginError');
+    if(err)err.textContent=message||'Masukkan password Admin sekali untuk mengaktifkan sesi Google Sheets pada perangkat ini.';
+  }catch(_){}
+  setTimeout(()=>{pnOnlineReauthPrompted=false},2500);
+}
 async function pnOnlineToken(){
   let token=pnDbToken();
-  if(!token&&typeof window.pnEnsureAdminServerSessionV1==='function'){
-    try{token=await window.pnEnsureAdminServerSessionV1()}catch(_){}
+  if(token)return token;
+
+  // Coba warm-session lebih dulu. Ini memakai kredensial login Admin yang masih
+  // berada di memori pada login saat ini dan tidak meminta password kedua.
+  if(typeof window.pnWarmAdminServerSessionV1==='function'){
+    try{token=await window.pnWarmAdminServerSessionV1()}catch(_){}
+    if(token)return token;
+  }
+  if(typeof window.pnEnsureAdminServerSessionV1==='function'){
+    try{token=await window.pnEnsureAdminServerSessionV1()}catch(err){
+      // Jika halaman pernah direfresh saat status Admin masih tersimpan tetapi
+      // token server belum pernah dibuat, perlu login Admin satu kali saja.
+      if(pnAdminUiActive()&&/login sekali lagi|password|sesi/i.test(String(err&&err.message||err))){
+        pnPromptGoogleSheetsReauth('Masukkan password Admin sekali untuk mengaktifkan Google Sheets. Setelah berhasil, perangkat ini akan terhubung otomatis.');
+      }
+    }
   }
   return token||'';
 }
@@ -991,7 +1019,7 @@ window.pnSyncGoogleSheetsNow=async function(){
   const status=document.getElementById('status');
   try{
     const token=await pnOnlineToken();
-    if(!token)throw new Error('Sesi Admin Google Sheets belum aktif. Silakan login Admin sekali lagi.');
+    if(!token){pnPromptGoogleSheetsReauth('Masukkan password Admin sekali untuk mengaktifkan Google Sheets pada perangkat ini.');throw new Error('Sesi Google Sheets perangkat ini belum aktif. Login Admin satu kali diperlukan.');}
 
     if(status){status.className='status';status.innerHTML='↻ <b>Menyinkronkan Google Sheets...</b>'}
     pnCloudStatus('SHEETS MENYIMPAN...');
@@ -1031,8 +1059,14 @@ async function pnMaybeLoadCloud(force=false){
   try{
     return await pnPrimeGoogleSheets(!!force);
   }catch(err){
+    const msg=String(err&&err.message||err);
     pnCloudStatus('BELUM TERHUBUNG');
-    if(typeof setStatus==='function')setStatus('Google Sheets belum dapat dimuat: <b>'+esc(err&&err.message||err)+'</b>','err');
+    if(/Sesi Admin Google Sheets belum aktif/i.test(msg)&&pnAdminUiActive()){
+      pnPromptGoogleSheetsReauth('Sesi Google Sheets perangkat ini belum terbentuk. Masukkan password Admin sekali; sesudah itu otomatis.');
+      if(typeof setStatus==='function')setStatus('Google Sheets siap, tetapi <b>sesi perangkat perlu diaktifkan satu kali</b>. Masukkan password Admin pada jendela login yang terbuka.','err');
+    }else if(typeof setStatus==='function'){
+      setStatus('Google Sheets belum dapat dimuat: <b>'+esc(msg)+'</b>','err');
+    }
     return false;
   }
 }
@@ -1056,5 +1090,13 @@ window.addEventListener('online',()=>{
   if(document.getElementById('adminApp')&&!document.getElementById('adminApp').classList.contains('hidden')){
     pnPrimeGoogleSheets(false).catch(()=>{});
   }
+});
+window.addEventListener('pn:admin-session-ready',()=>{
+  pnOnlinePrimePromise=null;
+  setTimeout(()=>{void pnPrimeGoogleSheets(true).catch(()=>{})},20);
+});
+window.addEventListener('pn:google-sheets-session-ready',()=>{
+  pnOnlinePrimePromise=null;
+  setTimeout(()=>{void pnPrimeGoogleSheets(true).catch(()=>{})},20);
 });
 })();
