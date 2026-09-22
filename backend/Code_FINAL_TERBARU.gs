@@ -122,7 +122,7 @@ function doGet(e) {
       backupAutomaticVersion:'1',
       backupRetentionDays:PN_BACKUP_RETENTION_DAYS,
       excelCloud:true,
-      excelCloudVersion:'5',
+      excelCloudVersion:'6',
       excelCloudChunkUpload:true,
       adminNotificationCenter:true,
       adminNotificationCenterVersion:'1',
@@ -2778,6 +2778,7 @@ function excelDatabaseUploadBegin_(data) {
   const total = Math.floor(Number(data.total || 0));
   const initialOnly = String(data.initialOnly || '') === '1';
   const expectedFileId = String(data.expectedFileId || '').trim();
+  const expectedUpdatedAt = String(data.expectedUpdatedAt || '').trim();
 
   if (!Number.isFinite(size) || size < 1 || size > PN_EXCEL_MAX_BYTES) throw new Error('Ukuran upload database tidak valid.');
   if (!Number.isFinite(total) || total < 1 || total > 64) throw new Error('Jumlah potongan upload database tidak valid.');
@@ -2792,8 +2793,8 @@ function excelDatabaseUploadBegin_(data) {
     if (!expectedFileId) {
       return {ok:false, code:'MASTER_VERSION_REQUIRED', exists:true, fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Versi master belum dikenali. Muat ulang database cloud terlebih dahulu.'};
     }
-    if (expectedFileId !== current.getId()) {
-      return {ok:false, code:'MASTER_CHANGED', exists:true, fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Master database sudah berubah dari perangkat lain.'};
+    if (expectedFileId !== current.getId() || (expectedUpdatedAt && expectedUpdatedAt !== String(m.updatedAt || ''))) {
+      return {ok:false, code:'MASTER_CHANGED', exists:true, fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Master database sudah berubah dari perangkat lain atau sesudah sinkronisasi terakhir.'};
     }
   }
 
@@ -2805,6 +2806,7 @@ function excelDatabaseUploadBegin_(data) {
     total:total,
     initialOnly:initialOnly,
     expectedFileId:expectedFileId,
+    expectedUpdatedAt:expectedUpdatedAt,
     createdAt:Date.now(),
     admin:String(admin || '')
   };
@@ -2864,8 +2866,8 @@ function excelDatabaseUploadCommit_(data) {
       if (!meta.expectedFileId) {
         return {ok:false, code:'MASTER_VERSION_REQUIRED', fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Versi master belum dikenali.'};
       }
-      if (String(meta.expectedFileId) !== current.getId()) {
-        return {ok:false, code:'MASTER_CHANGED', fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Master database berubah selama proses upload. Upload dibatalkan.'};
+      if (String(meta.expectedFileId) !== current.getId() || (meta.expectedUpdatedAt && String(meta.expectedUpdatedAt) !== String(m.updatedAt || ''))) {
+        return {ok:false, code:'MASTER_CHANGED', fileId:m.fileId, name:m.name, size:m.size, updatedAt:m.updatedAt, message:'Master database berubah selama proses upload. Upload dibatalkan agar kedua versi tetap aman.'};
       }
     }
 
