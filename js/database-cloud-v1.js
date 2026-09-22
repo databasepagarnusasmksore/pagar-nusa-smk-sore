@@ -418,6 +418,7 @@ async function pnSaveCloudWorkbook(out,name,initialOnly){
 
   const bytes=out instanceof Uint8Array?out:new Uint8Array(exactArrayBuffer(out));
   const expectedFileId=initialOnly?'':pnMasterFileId();
+  const expectedUpdatedAt=initialOnly?'':pnLastSyncStored();
   const chunkBytes=1536*1024;
   const total=Math.ceil(bytes.length/chunkBytes);
   if(!bytes.length)throw new Error('Database yang akan disimpan kosong.');
@@ -431,7 +432,8 @@ async function pnSaveCloudWorkbook(out,name,initialOnly){
       size:bytes.length,
       total,
       initialOnly:initialOnly?'1':'0',
-      expectedFileId
+      expectedFileId,
+      expectedUpdatedAt
     },30000);
     uploadId=String(begin.uploadId||'');
     if(!uploadId)throw new Error('Server tidak memberikan ID upload database.');
@@ -586,12 +588,10 @@ async function pnRunQueuedCloudSync(){
     console.error('Sinkronisasi database cloud gagal:',err);
     const code=String(err?.data?.code||'');
     if(code==='MASTER_CHANGED'||code==='MASTER_VERSION_REQUIRED'){
-      pnSetPending('');
-      pnCloudStatus('MASTER BERUBAH');
+      pnSetPending('update');
+      pnCloudStatus('KONFLIK CLOUD');
       pnRenderLastSync('error');
-      setStatus('<b>Database cloud lebih baru daripada salinan browser ini.</b> Upload dibatalkan agar data lama tidak menimpa data terbaru. Memuat master terbaru dari server...','err');
-      pnSetMasterFileId('');
-      setTimeout(()=>pnRestoreCloudDatabase({quiet:false,forceDownload:true}),250);
+      setStatus('<b>KONFLIK AMAN:</b> cloud berubah sejak sinkronisasi terakhir. Data lokal dan cloud <b>tetap dipertahankan</b>; tidak ada yang ditimpa otomatis.','err');
     }else{
       pnSetPending('update');
       pnCloudStatus('CLOUD TERTUNDA');
@@ -662,10 +662,12 @@ if(typeof pnOriginalPersistWorkingCopy==='function'){
 
     const token=pnDbToken();
     if(!token){
+      pnSetPending('update');
+      pnRenderLastSync('pending');
       return Object.assign({},localResult,{
         cloud:false,
         cloudQueued:false,
-        cloudWarning:'Sesi database pusat belum aktif.'
+        cloudWarning:'Sesi database pusat belum aktif. Perubahan ditandai untuk sinkronisasi saat sesi tersedia.'
       });
     }
 
