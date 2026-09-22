@@ -12,6 +12,7 @@ const PN_DB_DOWNLOAD_CONCURRENCY=4;
 const PN_DB_BACKGROUND_CHECK_MS=30*1000;
 const PN_ONLINE_DB_VERSION_KEY='pnOnlineDatabaseVersionV1';
 const PN_ONLINE_DB_SHEET_PREFIX='pnOnlineSheetVersionV1:';
+const PN_ONLINE_PENDING_PATCHES_KEY='pnOnlinePendingPatchesV1';
 const PN_ONLINE_DB_URL='https://docs.google.com/spreadsheets/d/1fg-zsfYnK6nCJZTOT-xzICkUOMgmMKTPOLWPtvHLOnM/edit';
 const PN_ONLINE_DB_SHEETS=new Set(['Data Siswa','Data Pengurus','Data Alumni','Kehadiran','Kenaikan Tingkat','Prestasi','Iuran','Data Pelanggaran','Data SP 1-3','Data Keluar']);
 
@@ -28,6 +29,7 @@ let pnCloudLastBackgroundCheck=0;
 let pnOnlinePatchMap=new Map();
 let pnOnlineApplySuspend=false;
 let pnOnlineSyncBusy=false;
+let pnOnlineSyncPromise=null;
 let pnOnlineRefreshBusy=new Set();
 
 function pnDatabasePanelOpen(){
@@ -45,11 +47,35 @@ function pnSetOnlineSheetVersion(sheet,version){try{if(version)localStorage.setI
 function pnSetOnlineVersion(version){try{if(version)localStorage.setItem(PN_ONLINE_DB_VERSION_KEY,String(version))}catch(_){}}
 function pnColName(n){let s='';while(n>0){n--;s=String.fromCharCode(65+(n%26))+s;n=Math.floor(n/26)}return s}
 
+function pnPersistOnlinePatches(){
+  try{
+    const rows=[...pnOnlinePatchMap.values()].slice(-2000);
+    if(rows.length)localStorage.setItem(PN_ONLINE_PENDING_PATCHES_KEY,JSON.stringify(rows));
+    else localStorage.removeItem(PN_ONLINE_PENDING_PATCHES_KEY);
+  }catch(_){}
+}
+function pnRestoreOnlinePatches(){
+  try{
+    const raw=localStorage.getItem(PN_ONLINE_PENDING_PATCHES_KEY)||'[]';
+    const rows=JSON.parse(raw);
+    if(!Array.isArray(rows))return;
+    rows.slice(-2000).forEach(p=>{
+      const sheet=String(p?.sheet||''),address=String(p?.address||'').toUpperCase();
+      if(!PN_ONLINE_DB_SHEETS.has(sheet)||!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(address))return;
+      pnOnlinePatchMap.set(pnOnlineCellKey(sheet,address),{
+        sheet,address,value:p?.value??'',clear:!!p?.clear
+      });
+    });
+  }catch(_){}
+}
+pnRestoreOnlinePatches();
+
 window.pnRecordOnlineCellPatch=function(sheet,address,value,clear=false){
   if(pnOnlineApplySuspend||!PN_ONLINE_DB_SHEETS.has(String(sheet||'')))return;
   const a=String(address||'').toUpperCase();
   if(!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(a))return;
   pnOnlinePatchMap.set(pnOnlineCellKey(sheet,a),{sheet:String(sheet),address:a,value:value??'',clear:!!clear});
+  pnPersistOnlinePatches();
 };
 
 async function pnOnlineToken(){
@@ -61,27 +87,51 @@ async function pnOnlineToken(){
 }
 
 async function pnFlushOnlinePatches(){
-  if(pnOnlineSyncBusy||!pnOnlinePatchMap.size)return {ok:true,count:0};
+  if(pnOnlineSyncPromise){
+    await pnOnlineSyncPromise;
+    if(pnOnlinePatchMap.size)return pnFlushOnlinePatches();
+    return {ok:true,count:0};
+  }
+  if(!pnOnlinePatchMap.size)return {ok:true,count:0};
+
   const token=await pnOnlineToken();
   if(!token)throw new Error('Sesi Admin untuk Google Sheets belum aktif.');
-  const entries=[...pnOnlinePatchMap.entries()];
+
+  const entries=[...pnOnlinePatchMap.entries()].slice(0,300);
   const patches=entries.map(x=>x[1]);
   pnOnlineSyncBusy=true;
   pnCloudStatus('SHEETS MENYIMPAN...');
   pnRenderLastSync('pending');
-  try{
+
+  pnOnlineSyncPromise=(async()=>{
     const result=await pnDatabasePost('databaseSheetPatch',{token,patches:JSON.stringify(patches)},30000);
     for(const [key,snapshot] of entries){
       const current=pnOnlinePatchMap.get(key);
       if(current&&JSON.stringify(current)===JSON.stringify(snapshot))pnOnlinePatchMap.delete(key);
     }
+    pnPersistOnlinePatches();
+
     const touched=[...new Set(patches.map(p=>p.sheet))];
     touched.forEach(sh=>pnSetOnlineSheetVersion(sh,result.version));
     pnSetOnlineVersion(result.version);
     pnSetLastSync(new Date().toISOString());
     pnCloudStatus('GOOGLE SHEETS ONLINE');
     return result;
-  }finally{pnOnlineSyncBusy=false}
+  })();
+
+  let result;
+  try{
+    result=await pnOnlineSyncPromise;
+  }finally{
+    pnOnlineSyncPromise=null;
+    pnOnlineSyncBusy=false;
+  }
+
+  if(pnOnlinePatchMap.size){
+    const next=await pnFlushOnlinePatches();
+    return Object.assign({},result,{count:Number(result.count||0)+Number(next.count||0)});
+  }
+  return result;
 }
 
 async function pnRefreshOnlineSheet(sheet,moduleKey='',force=false){
