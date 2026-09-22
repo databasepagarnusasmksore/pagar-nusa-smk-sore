@@ -87,6 +87,13 @@ async function pnFlushOnlinePatches(){
 async function pnRefreshOnlineSheet(sheet,moduleKey='',force=false){
   sheet=String(sheet||'');
   if(!PN_ONLINE_DB_SHEETS.has(sheet)||!zipEntries||!docs[sheet]||pnOnlineRefreshBusy.has(sheet))return false;
+
+  const hasPending=[...pnOnlinePatchMap.values()].some(p=>p.sheet===sheet);
+  if(hasPending){
+    try{await pnFlushOnlinePatches()}catch(_){return false}
+    if([...pnOnlinePatchMap.values()].some(p=>p.sheet===sheet))return false;
+  }
+
   const token=await pnOnlineToken();
   if(!token)return false;
   pnOnlineRefreshBusy.add(sheet);
@@ -143,9 +150,26 @@ async function pnRefreshOnlineSheet(sheet,moduleKey='',force=false){
   }finally{pnOnlineRefreshBusy.delete(sheet)}
 }
 
+async function pnRefreshOnlineCore(force=false){
+  if(!zipEntries)return false;
+  const jobs=[];
+  if(docs['Data Siswa'])jobs.push(pnRefreshOnlineSheet('Data Siswa','siswa',force));
+  if(docs['Data Pengurus'])jobs.push(pnRefreshOnlineSheet('Data Pengurus','pengurus',force));
+  await Promise.all(jobs);
+  if(typeof loadCaches==='function')loadCaches();
+  if(typeof loadPengurusPeople==='function')loadPengurusPeople();
+  if(typeof refreshDashboard==='function')refreshDashboard();
+  return true;
+}
+
 window.addEventListener('pn:module-open',event=>{
   const d=event.detail||{};
-  setTimeout(()=>pnRefreshOnlineSheet(d.sheet,d.module,false),30);
+  setTimeout(async()=>{
+    await pnRefreshOnlineCore(false);
+    if(d.sheet!=='Data Siswa'&&d.sheet!=='Data Pengurus'){
+      await pnRefreshOnlineSheet(d.sheet,d.module,false);
+    }
+  },30);
 });
 
 function pnPending(){
@@ -301,7 +325,7 @@ function pnDatabasePost(action,payload={},timeoutMs=90000){
     document.body.appendChild(frame);
     document.body.appendChild(form);
     form.submit();
-    if(['databaseManifest','databaseSave','databaseHistoryAdd','databaseUploadBegin','databaseUploadChunk','databaseUploadCommit','databaseUploadAbort'].includes(action))pollTimer=setTimeout(poll,500);
+    if(['databaseManifest','databaseSave','databaseHistoryAdd','databaseUploadBegin','databaseUploadChunk','databaseUploadCommit','databaseUploadAbort','databaseSheetPatch'].includes(action))pollTimer=setTimeout(poll,500);
   });
 }
 function pnHistoryEsc(value){
@@ -833,8 +857,16 @@ async function pnMaybeLoadCloud(force=false){
     pnCloudStatus('AMBIL TEMPLATE XLSM...');
     setStatus('Perangkat ini belum memiliki template Excel lokal. Mengambil template sekali dari Drive, lalu data LIVE dibaca dari Google Sheets...','ok');
     const loaded=await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
-    if(loaded&&typeof activeModule!=='undefined'&&typeof modules!=='undefined'&&modules[activeModule]){
-      setTimeout(()=>pnRefreshOnlineSheet(modules[activeModule].sheet,activeModule,true),60);
+    if(loaded){
+      setTimeout(async()=>{
+        await pnRefreshOnlineCore(true);
+        if(typeof activeModule!=='undefined'&&typeof modules!=='undefined'&&modules[activeModule]){
+          const m=modules[activeModule];
+          if(m.sheet!=='Data Siswa'&&m.sheet!=='Data Pengurus'){
+            await pnRefreshOnlineSheet(m.sheet,activeModule,true);
+          }
+        }
+      },60);
     }
     return loaded;
   }
@@ -866,7 +898,18 @@ async function pnMaybeLoadCloud(force=false){
 setTimeout(()=>pnRenderLastSync('idle'),120);
 setTimeout(()=>pnEnsureHistoryUi(),180);
 window.addEventListener('pn:database-panel-open',()=>{
-  setTimeout(()=>pnMaybeLoadCloud(true),60);
+  setTimeout(async()=>{
+    await pnMaybeLoadCloud(true);
+    if(!zipEntries)return;
+    await pnRefreshOnlineCore(true);
+    if(typeof activeModule!=='undefined'&&typeof modules!=='undefined'&&modules[activeModule]){
+      const m=modules[activeModule];
+      if(m.sheet!=='Data Siswa'&&m.sheet!=='Data Pengurus'){
+        await pnRefreshOnlineSheet(m.sheet,activeModule,true);
+      }
+    }
+    pnCloudStatus('GOOGLE SHEETS ONLINE');
+  },60);
 });
 setInterval(()=>{
   if(pnOnlinePatchMap.size)pnFlushOnlinePatches().catch(()=>{});
