@@ -233,25 +233,21 @@ async function loadMonitor(force){
   if(!force&&monitorData){renderMonitor();return}
   loading=true;
   const refresh=$('pnAspelRefresh');if(refresh){refresh.disabled=true;refresh.textContent='MEMUAT...'}
-  setStatus('','Mengambil data terbaru dari Portal Biodata Siswa...');
-  let lastError=null;
+  setStatus('','Mengambil data terbaru Pemantauan Koordinator ASPEL...');
   try{
-    for(const wait of [0,500,1000,1800,3000]){
-      if(wait)await sleep(wait);
-      if(savedValue(AUTH_KEY)!=='1')throw new Error('Sesi admin tidak aktif. Silakan login ulang.');
-      const token=savedValue(TOKEN_KEY);
-      if(!token){lastError=new Error('Sesi server admin sedang disiapkan.');continue}
-      try{
-        monitorData=await jsonp('aspelMonitorAdminList',{token},23000);
-        renderMonitor();
-        setStatus('ok',`Data berhasil dimuat • ${Number(monitorData.summary?.coordinatorCount||0)} koordinator • ${Number(monitorData.summary?.candidateCount||0)} data dampingan.`);
-        return;
-      }catch(err){lastError=err}
+    if(savedValue(AUTH_KEY)!=='1')throw new Error('Sesi admin tidak aktif. Silakan login ulang.');
+    let token=savedValue(TOKEN_KEY);
+    if(!token){
+      if(typeof window.pnEnsureAdminServerSessionV1!=='function')throw new Error('Modul sesi admin belum siap. Refresh halaman.');
+      token=await window.pnEnsureAdminServerSessionV1();
     }
-    throw lastError||new Error('Sesi server admin belum siap.');
+    if(!token)throw new Error('Sesi server admin belum aktif.');
+    monitorData=await jsonp('aspelMonitorAdminList',{token},23000);
+    renderMonitor();
+    setStatus('ok',`Data berhasil dimuat • ${Number(monitorData.summary?.coordinatorCount||0)} koordinator • ${Number(monitorData.summary?.candidateCount||0)} data dampingan.`);
   }catch(err){
-    setStatus('err','Pemantauan belum dapat dimuat. '+err.message+' Jika backend baru saja diperbarui, deploy versi Apps Script terbaru lalu login admin kembali.');
-    const list=$('pnAspelList');if(list&&!monitorData)list.innerHTML='<div class="pnAspelEmpty">Data belum tersedia.</div>';
+    setStatus('err','Pemantauan belum dapat dimuat. '+String(err&&err.message||err||''));
+    const list=$('pnAspelList');if(list&&!monitorData)list.innerHTML='<div class="pnAspelEmpty">Keluar Admin lalu login sekali lagi jika sesi server belum aktif. Tidak perlu memasukkan password kedua.</div>';
   }finally{
     loading=false;
     if(refresh){refresh.disabled=false;refresh.textContent='↻ MUAT ULANG'}
