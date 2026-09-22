@@ -106,7 +106,9 @@ async function loadPublicState(){
   }catch(_){applyState('ON')}
 }
 
-function token(){try{return localStorage.getItem(TOKEN_KEY)||sessionStorage.getItem(TOKEN_KEY)||''}catch(_){return sessionStorage.getItem(TOKEN_KEY)||''}}
+function token(){try{return sessionStorage.getItem(TOKEN_KEY)||localStorage.getItem(TOKEN_KEY)||''}catch(_){try{return sessionStorage.getItem(TOKEN_KEY)||''}catch(__){return''}}}
+function adminActive(){try{return localStorage.getItem('pnAdminAuth')==='1'||sessionStorage.getItem('pnAdminAuth')==='1'}catch(_){return false}}
+async function ensureToken(){const t=token();if(t)return t;if(typeof window.pnEnsureAdminServerSessionV1!=='function')throw new Error('Modul sesi admin belum siap. Refresh halaman.');return await window.pnEnsureAdminServerSessionV1()}
 
 function switchHtml(){return `
   <div id="pnRegistrationAdminSwitch" class="pnRegSwitchBox">
@@ -130,26 +132,29 @@ function installAdminSwitch(){
 function renderSwitchState(message=''){
   const badge=$('pnRegSwitchBadge'),on=$('pnRegSwitchOn'),off=$('pnRegSwitchOff'),help=$('pnRegSwitchHelp');
   if(!badge||!on||!off)return;
-  const hasToken=!!token();
+  const canEdit=adminActive();
   on.classList.toggle('active',currentState==='ON');off.classList.toggle('active',currentState==='OFF');
   badge.textContent=currentState==='ON'?'AKTIF / ON':'TUTUP / OFF';badge.className='pnRegSwitchBadge '+(currentState==='ON'?'on':'off');
-  on.disabled=off.disabled=!hasToken;
-  if(help)help.textContent=message||(hasToken?(currentState==='ON'?'Pendaftaran terbuka. Tombol pendaftaran tampil untuk pengunjung.':'Pendaftaran ditutup. Tombol pendaftaran disembunyikan dari pengunjung.'):'Klik HUBUNGKAN AKSES terlebih dahulu untuk mengubah ON/OFF.');
+  on.disabled=off.disabled=!canEdit;
+  if(help)help.textContent=message||(currentState==='ON'?'Pendaftaran terbuka. Klik ON/OFF untuk mengubah; sesi server aktif otomatis saat diperlukan.':'Pendaftaran ditutup. Klik ON/OFF untuk mengubah; sesi server aktif otomatis saat diperlukan.');
 }
 
 async function loadAdminState(){
-  if(loadingAdmin)return;const t=token();if(!t){renderSwitchState();return}
-  loadingAdmin=true;
+  if(loadingAdmin)return;loadingAdmin=true;
   try{
-    const shared=await sharedCmsData('__pnCmsAdminData');
-    const r=shared||await jsonp('contentAdminList',{token:t},16000);
-    if(!r?.ok)throw new Error(r?.message||'Sesi admin tidak valid.');
-    applyState(stateFromItems(r.content));
+    const t=token();
+    if(t){
+      const shared=await sharedCmsData('__pnCmsAdminData');
+      const r=shared||await jsonp('contentAdminList',{token:t},16000);
+      if(r?.ok){applyState(stateFromItems(r.content));return}
+    }
+    await loadPublicState();renderSwitchState();
   }catch(err){renderSwitchState(err.message||'Gagal membaca status pendaftaran.')}finally{loadingAdmin=false}
 }
 
 async function saveState(state){
-  const t=token();if(!t){renderSwitchState('Hubungkan akses admin terlebih dahulu.');return}
+  let t='';
+  try{t=await ensureToken()}catch(err){renderSwitchState(err.message||'Sesi admin server belum aktif.');return}
   const on=$('pnRegSwitchOn'),off=$('pnRegSwitchOff');on.disabled=off.disabled=true;
   renderSwitchState('Menyimpan pengaturan '+state+' ke database...');
   const item={id:SETTING_ID,type:'PENGATURAN',title:'PENDAFTARAN CALON ANGGOTA',summary:state,body:state,date:'',badge:'FITUR',link:'',status:'PUBLIK',order:999};
@@ -157,7 +162,7 @@ async function saveState(state){
     await postReliable('contentAdminSave',{token:t,section:'content',itemJson:JSON.stringify(item)});
     applyState(state);
     renderSwitchState(state==='ON'?'✓ Pendaftaran dibuka. Menu pendaftaran sekarang tampil untuk pengunjung.':'✓ Pendaftaran ditutup. Menu pendaftaran sekarang disembunyikan dari pengunjung.');
-  }catch(err){renderSwitchState(err.message||'Gagal menyimpan pengaturan.')}finally{on.disabled=off.disabled=!token()}
+  }catch(err){renderSwitchState(err.message||'Gagal menyimpan pengaturan.')}finally{on.disabled=off.disabled=!adminActive()}
 }
 
 function watchAdmin(){
@@ -170,5 +175,5 @@ document.documentElement.setAttribute('data-pn-registration','pending');
 document.addEventListener('DOMContentLoaded',()=>{loadPublicState();watchAdmin();setInterval(watchAdmin,1800);setInterval(loadPublicState,60000)});
 window.addEventListener('pn:cms-public-data',e=>{if(e.detail?.ok)applyState(stateFromItems(e.detail.content))});
 window.addEventListener('pn:cms-admin-data',e=>{if(e.detail?.ok&&token())applyState(stateFromItems(e.detail.content))});
-document.addEventListener('click',e=>{const id=e.target?.id;if(id==='pnCmsConnect'||id==='pnCmsReload')setTimeout(()=>{watchAdmin();loadAdminState()},1300)});
+document.addEventListener('click',e=>{const id=e.target?.id;if(id==='pnCmsReload')setTimeout(()=>{watchAdmin();loadAdminState()},500)});
 })();

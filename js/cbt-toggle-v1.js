@@ -113,7 +113,9 @@ async function loadPublicState(){
   }catch(_){applyState('ON')}
 }
 
-function token(){try{return localStorage.getItem(TOKEN_KEY)||sessionStorage.getItem(TOKEN_KEY)||''}catch(_){return sessionStorage.getItem(TOKEN_KEY)||''}}
+function token(){try{return sessionStorage.getItem(TOKEN_KEY)||localStorage.getItem(TOKEN_KEY)||''}catch(_){try{return sessionStorage.getItem(TOKEN_KEY)||''}catch(__){return''}}}
+function adminActive(){try{return localStorage.getItem('pnAdminAuth')==='1'||sessionStorage.getItem('pnAdminAuth')==='1'}catch(_){return false}}
+async function ensureToken(){const t=token();if(t)return t;if(typeof window.pnEnsureAdminServerSessionV1!=='function')throw new Error('Modul sesi admin belum siap. Refresh halaman.');return await window.pnEnsureAdminServerSessionV1()}
 
 function switchHtml(){return `
   <div id="pnCbtAdminSwitch" class="pnCbtSwitchBox">
@@ -143,30 +145,35 @@ function installAdminSwitch(){
 function renderSwitchState(message=''){
   const badge=$('pnCbtSwitchBadge'),on=$('pnCbtSwitchOn'),off=$('pnCbtSwitchOff'),help=$('pnCbtSwitchHelp'),input=$('pnCbtFormUrl'),save=$('pnCbtSaveLink'),linkHelp=$('pnCbtLinkHelp');
   if(!badge||!on||!off)return;
-  const hasToken=!!token();
+  const canEdit=adminActive();
   on.classList.toggle('active',currentState==='ON');off.classList.toggle('active',currentState==='OFF');
   badge.textContent=currentState==='ON'?'AKTIF / ON':'TUTUP / OFF';badge.className='pnCbtSwitchBadge '+(currentState==='ON'?'on':'off');
-  on.disabled=off.disabled=!hasToken;
-  if(input){input.disabled=!hasToken;if(document.activeElement!==input)input.value=currentLink||''}
-  if(save)save.disabled=!hasToken;
-  if(linkHelp)linkHelp.textContent=currentLink?'✓ Link CBT tersimpan. Anda dapat menggantinya kapan saja.':'Belum ada link tersimpan di pengaturan. Tempel link Google Form lalu klik SIMPAN LINK.';
-  if(help)help.textContent=message||(hasToken?(currentState==='ON'?'Portal CBT aktif. Tombol CBT tampil untuk anggota.':'Portal CBT ditutup. Tombol CBT disembunyikan dari pengunjung.'):'Klik HUBUNGKAN AKSES terlebih dahulu untuk mengubah pengaturan.');
+  on.disabled=off.disabled=!canEdit;
+  if(input){input.disabled=!canEdit;if(document.activeElement!==input&&currentLink)input.value=currentLink}
+  if(save)save.disabled=!canEdit;
+  if(linkHelp)linkHelp.textContent=currentLink?'✓ Link CBT tersimpan. Anda dapat menggantinya kapan saja.':'Link tersimpan ditampilkan setelah sesi admin aktif. Anda tetap dapat menempel link baru.';
+  if(help)help.textContent=message||(currentState==='ON'?'Portal CBT aktif. Pengaturan dapat diubah langsung; sesi server aktif otomatis saat diperlukan.':'Portal CBT ditutup. Pengaturan dapat diubah langsung; sesi server aktif otomatis saat diperlukan.');
 }
 
 async function loadAdminState(){
-  if(loadingAdmin)return;const t=token();if(!t){renderSwitchState();return}
-  loadingAdmin=true;
+  if(loadingAdmin)return;loadingAdmin=true;
   try{
-    const shared=await sharedCmsData('__pnCmsAdminData');
-    const r=shared||await jsonp('contentAdminList',{token:t},16000);
-    if(!r?.ok)throw new Error(r?.message||'Sesi admin tidak valid.');
-    currentLink=linkFromItems(r.content);
-    applyState(stateFromItems(r.content));
+    const t=token();
+    if(t){
+      const shared=await sharedCmsData('__pnCmsAdminData');
+      const r=shared||await jsonp('contentAdminList',{token:t},16000);
+      if(r?.ok){currentLink=linkFromItems(r.content);applyState(stateFromItems(r.content));return}
+    }
+    await loadPublicState();renderSwitchState();
   }catch(err){renderSwitchState(err.message||'Gagal membaca status Portal CBT.')}finally{loadingAdmin=false}
 }
 
+async function hydrateAdminConfig(t){
+  try{const r=await jsonp('contentAdminList',{token:t},16000);if(r?.ok){currentLink=linkFromItems(r.content)||currentLink;applyState(stateFromItems(r.content));renderSwitchState()}}catch(_){}
+}
+
 async function saveState(state){
-  const t=token();if(!t){renderSwitchState('Hubungkan akses admin terlebih dahulu.');return}
+  let t='';try{t=await ensureToken();await hydrateAdminConfig(t)}catch(err){renderSwitchState(err.message||'Sesi admin server belum aktif.');return}
   const on=$('pnCbtSwitchOn'),off=$('pnCbtSwitchOff');on.disabled=off.disabled=true;
   renderSwitchState('Menyimpan pengaturan '+state+' ke database...');
   const item={id:SETTING_ID,type:'PENGATURAN',title:'PORTAL CBT ONLINE',summary:state,body:state,date:'',badge:'FITUR',link:currentLink,status:'PUBLIK',order:998};
@@ -174,28 +181,18 @@ async function saveState(state){
     await postReliable('contentAdminSave',{token:t,section:'content',itemJson:JSON.stringify(item)});
     applyState(state);
     renderSwitchState(state==='ON'?'✓ Portal CBT diaktifkan. Tombol CBT sekarang tampil untuk anggota.':'✓ Portal CBT dinonaktifkan. Tombol CBT sekarang disembunyikan dari pengunjung.');
-  }catch(err){renderSwitchState(err.message||'Gagal menyimpan pengaturan CBT.')}finally{on.disabled=off.disabled=!token()}
+  }catch(err){renderSwitchState(err.message||'Gagal menyimpan pengaturan CBT.')}finally{on.disabled=off.disabled=!adminActive()}
 }
 
 async function saveLink(){
-  const t=token();if(!t){renderSwitchState('Hubungkan akses admin terlebih dahulu.');return}
-  const input=$('pnCbtFormUrl'),save=$('pnCbtSaveLink');
-  const value=String(input?.value||'').trim();
-  if(!validFormUrl(value)){
-    if($('pnCbtLinkHelp'))$('pnCbtLinkHelp').textContent='Link tidak valid. Gunakan link Google Form dari forms.gle atau docs.google.com/forms.';
-    input?.focus();return;
-  }
-  if(save)save.disabled=true;
-  if($('pnCbtLinkHelp'))$('pnCbtLinkHelp').textContent='Menyimpan link Google Form CBT...';
+  let t='';try{t=await ensureToken()}catch(err){renderSwitchState(err.message||'Sesi admin server belum aktif.');return}
+  const input=$('pnCbtFormUrl'),save=$('pnCbtSaveLink');const value=String(input?.value||'').trim();
+  if(!validFormUrl(value)){if($('pnCbtLinkHelp'))$('pnCbtLinkHelp').textContent='Link tidak valid. Gunakan link Google Form dari forms.gle atau docs.google.com/forms.';input?.focus();return}
+  if(save)save.disabled=true;if($('pnCbtLinkHelp'))$('pnCbtLinkHelp').textContent='Menyimpan link Google Form CBT...';
   const item={id:SETTING_ID,type:'PENGATURAN',title:'PORTAL CBT ONLINE',summary:currentState,body:currentState,date:'',badge:'FITUR',link:value,status:'PUBLIK',order:998};
-  try{
-    await postReliable('contentAdminSave',{token:t,section:'content',itemJson:JSON.stringify(item)});
-    currentLink=value;
-    renderSwitchState('✓ Link Google Form CBT berhasil diperbarui.');
-    if($('pnCbtLinkHelp'))$('pnCbtLinkHelp').textContent='✓ Link CBT tersimpan dan akan dipakai Portal CBT.';
-  }catch(err){
-    if($('pnCbtLinkHelp'))$('pnCbtLinkHelp').textContent=err.message||'Gagal menyimpan link CBT.';
-  }finally{if(save)save.disabled=!token()}
+  try{await postReliable('contentAdminSave',{token:t,section:'content',itemJson:JSON.stringify(item)});currentLink=value;renderSwitchState('✓ Link Google Form CBT berhasil diperbarui.');if($('pnCbtLinkHelp'))$('pnCbtLinkHelp').textContent='✓ Link CBT tersimpan dan akan dipakai Portal CBT.'}
+  catch(err){if($('pnCbtLinkHelp'))$('pnCbtLinkHelp').textContent=err.message||'Gagal menyimpan link CBT.'}
+  finally{if(save)save.disabled=!adminActive()}
 }
 
 function watchAdmin(){
@@ -208,5 +205,5 @@ document.documentElement.setAttribute('data-pn-cbt','pending');
 document.addEventListener('DOMContentLoaded',()=>{loadPublicState();watchAdmin();setInterval(watchAdmin,1800);setInterval(loadPublicState,60000)});
 window.addEventListener('pn:cms-public-data',e=>{if(e.detail?.ok)applyState(stateFromItems(e.detail.content))});
 window.addEventListener('pn:cms-admin-data',e=>{if(e.detail?.ok&&token()){currentLink=linkFromItems(e.detail.content);applyState(stateFromItems(e.detail.content))}});
-document.addEventListener('click',e=>{const id=e.target?.id;if(id==='pnCmsConnect'||id==='pnCmsReload')setTimeout(()=>{watchAdmin();loadAdminState()},1300)});
+document.addEventListener('click',e=>{const id=e.target?.id;if(id==='pnCmsReload')setTimeout(()=>{watchAdmin();loadAdminState()},500)});
 })();
