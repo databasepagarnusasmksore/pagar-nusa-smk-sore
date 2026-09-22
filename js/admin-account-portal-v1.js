@@ -18,8 +18,21 @@ const $=id=>document.getElementById(id);
 const esc=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const norm=value=>String(value||'').trim().toLowerCase();
 const savedValue=key=>{try{return localStorage.getItem(key)||sessionStorage.getItem(key)||''}catch(_){return sessionStorage.getItem(key)||''}};
+async function portalToken(){
+  let token=savedValue(TOKEN_KEY);
+  if(token)return token;
+  if(typeof window.pnEnsureAdminServerSessionV1==='function'){
+    try{
+      token=await window.pnEnsureAdminServerSessionV1();
+      if(token)return token;
+    }catch(err){
+      throw new Error(err?.message||'Sesi server Admin belum aktif.');
+    }
+  }
+  throw new Error('Sesi verifikasi Admin belum tersedia. Keluar Admin lalu login kembali sekali.');
+}
 
-function jsonp(action,payload={},timeoutMs=22000){
+function jsonp(action,payload={},timeoutMs=65000){
   return new Promise((resolve,reject)=>{
     const cb='pnAccountCb_'+Date.now()+'_'+Math.random().toString(36).slice(2).replace(/[^a-z0-9_]/gi,'');
     const script=document.createElement('script');
@@ -33,7 +46,7 @@ function jsonp(action,payload={},timeoutMs=22000){
     Object.entries(payload).forEach(([key,value])=>qs.set(key,String(value??'')));
     script.src=ENDPOINT+'?'+qs.toString();script.async=true;
     script.onerror=()=>{if(done)return;done=true;cleanup();reject(new Error('Tidak dapat menghubungi database akun anggota.'))};
-    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('Database akun terlalu lama merespons.'))},timeoutMs);
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('Database akun belum selesai merespons setelah 65 detik. Klik MUAT ULANG untuk mencoba lagi.'))},timeoutMs);
     document.head.appendChild(script);
   });
 }
@@ -201,9 +214,27 @@ async function resetSelectedPassword(){
 }
 
 async function loadPortal(force=false,keepModal=false){
-  if(loading)return;const token=savedValue(TOKEN_KEY);if(!token){setStatus('err','Sesi verifikasi Admin tidak ditemukan. Silakan login ulang.');return}
-  loading=true;const btn=$('pnAccountRefresh');if(btn)btn.disabled=true;setStatus('','Memuat seluruh akun Anggota dan Calon Anggota...');
-  try{const data=await jsonp('portalAccountAdminList',{token,force:force?'1':'0'});portalData=data;renderPortal();setStatus('ok',data.message||`Database akun berhasil dimuat: ${Number(data.summary?.total||0)} data.`)}catch(err){setStatus('err',err.message||String(err));if(!portalData)$('pnAccountList').innerHTML='<div class="pnAccountEmpty">Database akun belum dapat dimuat. Pastikan backend Portal Akun Anggota sudah dipublikasikan.</div>'}finally{loading=false;if(btn)btn.disabled=false;if(!keepModal&&$('pnAccountModal')&&!$('pnAccountModal').classList.contains('hidden'))closeModal()}
+  if(loading)return;
+  loading=true;
+  const btn=$('pnAccountRefresh');
+  if(btn)btn.disabled=true;
+  setStatus('',force?'Memuat ulang database akun langsung dari Google Sheets...':'Menyiapkan database akun Anggota. Muatan pertama dapat sedikit lebih lama...');
+  try{
+    const token=await portalToken();
+    const data=await jsonp('portalAccountAdminList',{token,force:force?'1':'0'},65000);
+    portalData=data;
+    renderPortal();
+    const cacheNote=data.cached?' • cache server':'';
+    setStatus('ok',(data.message||`Database akun berhasil dimuat: ${Number(data.summary?.total||0)} data.`)+cacheNote);
+  }catch(err){
+    const msg=err?.message||String(err);
+    setStatus('err',msg);
+    if(!portalData)$('pnAccountList').innerHTML='<div class="pnAccountEmpty">Database akun belum dapat dimuat. Pastikan Code.gs terbaru sudah di-deploy sebagai versi baru pada Web App Apps Script.</div>';
+  }finally{
+    loading=false;
+    if(btn)btn.disabled=false;
+    if(!keepModal&&$('pnAccountModal')&&!$('pnAccountModal').classList.contains('hidden'))closeModal();
+  }
 }
 
 function installNavigationClose(){
