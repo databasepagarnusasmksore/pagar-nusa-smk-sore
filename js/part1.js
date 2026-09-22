@@ -72,6 +72,19 @@ function ensureRow(doc,rowNum){const sheetData=firstLocal(doc,'sheetData');let r
 function ensureCell(doc,map,address,styleFrom=''){let c=map.get(address);if(c)return c;const m=address.match(/^([A-Z]+)(\d+)$/);if(!m)throw new Error('Alamat sel tidak valid: '+address);const cn=colNum(m[1]),rn=parseInt(m[2],10),row=ensureRow(doc,rn);c=doc.createElementNS(NS,'c');c.setAttribute('r',address);const style=styleFrom?cloneStyleFrom(doc,map,styleFrom):null;if(style!==null)c.setAttribute('s',style);const cells=Array.from(row.children).filter(x=>x.localName==='c');const next=cells.find(x=>colNum((x.getAttribute('r').match(/^([A-Z]+)/)||[])[1])>cn);if(next)row.insertBefore(c,next);else row.appendChild(c);map.set(address,c);return c}
 function setCellValue(doc,map,address,value,isNumber=false,styleFrom=''){const c=ensureCell(doc,map,address,styleFrom);for(const child of Array.from(c.childNodes)){if(child.nodeType===1&&['v','is','f'].includes(child.localName))c.removeChild(child)}if(value===null||value===undefined||String(value)===''){c.removeAttribute('t');return c}if(isNumber){c.setAttribute('t','n');const v=doc.createElementNS(NS,'v');v.textContent=String(value);c.appendChild(v)}else{c.setAttribute('t','inlineStr');const is=doc.createElementNS(NS,'is'),t=doc.createElementNS(NS,'t');t.textContent=String(value);is.appendChild(t);c.appendChild(is)}return c}
 function setFormulaCached(doc,map,address,value,isNumber=false){const c=map.get(address);if(!c||!hasFormula(c))return false;for(const child of Array.from(c.childNodes)){if(child.nodeType===1&&['v','is'].includes(child.localName))c.removeChild(child)}if(value===null||value===undefined||String(value)==='')return true;if(isNumber)c.removeAttribute('t');else c.setAttribute('t','str');const v=doc.createElementNS(NS,'v');v.textContent=String(value);c.appendChild(v);return true}
-function writeOrCache(sheet,address,value,isNumber=false,styleFrom=''){const doc=docs[sheet],map=cellMaps[sheet],c=map.get(address);if(c&&hasFormula(c))setFormulaCached(doc,map,address,value,isNumber);else setCellValue(doc,map,address,value,isNumber,styleFrom);dirtySheets.add(sheet)}
-function clearCell(sheet,address,preserveFormula=true){const doc=docs[sheet],map=cellMaps[sheet],c=map.get(address);if(!c)return;const f=firstLocal(c,'f');for(const child of Array.from(c.childNodes)){if(child.nodeType===1&&(child.localName==='v'||child.localName==='is'||(!preserveFormula&&child.localName==='f')))c.removeChild(child)}if(!f||!preserveFormula)c.removeAttribute('t');dirtySheets.add(sheet)}
+function writeOrCache(sheet,address,value,isNumber=false,styleFrom=''){
+  const doc=docs[sheet],map=cellMaps[sheet],c=map.get(address),formula=!!(c&&hasFormula(c));
+  if(formula)setFormulaCached(doc,map,address,value,isNumber);
+  else setCellValue(doc,map,address,value,isNumber,styleFrom);
+  dirtySheets.add(sheet);
+  if(!formula&&typeof window.pnRecordOnlineCellPatch==='function')window.pnRecordOnlineCellPatch(sheet,address,value,false);
+}
+function clearCell(sheet,address,preserveFormula=true){
+  const doc=docs[sheet],map=cellMaps[sheet],c=map.get(address);if(!c)return;
+  const f=firstLocal(c,'f');
+  for(const child of Array.from(c.childNodes)){if(child.nodeType===1&&(child.localName==='v'||child.localName==='is'||(!preserveFormula&&child.localName==='f')))c.removeChild(child)}
+  if(!f||!preserveFormula)c.removeAttribute('t');
+  dirtySheets.add(sheet);
+  if((!f||!preserveFormula)&&typeof window.pnRecordOnlineCellPatch==='function')window.pnRecordOnlineCellPatch(sheet,address,'',true);
+}
 function pad3(n){return String(n).padStart(3,'0')}
