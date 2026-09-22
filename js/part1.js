@@ -11,7 +11,45 @@ function exactArrayBuffer(data){if(data instanceof ArrayBuffer)return data.slice
 function openCacheDB(){return new Promise((resolve,reject)=>{if(!('indexedDB'in window)){reject(new Error('IndexedDB tidak tersedia'));return}const req=indexedDB.open(CACHE_DB_NAME,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(CACHE_STORE))db.createObjectStore(CACHE_STORE,{keyPath:'id'})};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Gagal membuka penyimpanan browser'))})}
 async function cacheDatabase(data,name,handle=null,synced=false){try{const db=await openCacheDB();const record={id:CACHE_KEY,name:name||originalName||'Database_Pagar_Nusa_BROWSER.xlsm',bytes:exactArrayBuffer(data),updatedAt:Date.now(),synced:!!synced};if(handle)record.handle=handle;await new Promise((resolve,reject)=>{const tx=db.transaction(CACHE_STORE,'readwrite');const st=tx.objectStore(CACHE_STORE);let req;try{req=st.put(record)}catch(e){if(record.handle){delete record.handle;req=st.put(record)}else throw e}tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error||req?.error);tx.onabort=()=>reject(tx.error||new Error('Penyimpanan browser dibatalkan'))});db.close();return true}catch(e){console.warn('Cache database gagal:',e);return false}}
 async function getCachedDatabase(){try{const db=await openCacheDB();const rec=await new Promise((resolve,reject)=>{const tx=db.transaction(CACHE_STORE,'readonly');const req=tx.objectStore(CACHE_STORE).get(CACHE_KEY);req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error)});db.close();return rec}catch(e){console.warn('Muat cache gagal:',e);return null}}
-async function restoreLastDatabase(){const rec=await getCachedDatabase();if(!rec||!rec.bytes)return;try{setStatus('Memuat database terakhir yang tersimpan di browser...');fileHandle=rec.handle||null;let bytes=rec.bytes,name=rec.name||'Database_Pagar_Nusa_BROWSER.xlsm',direct=false;if(fileHandle&&rec.synced){try{let perm=fileHandle.queryPermission?await fileHandle.queryPermission({mode:'readwrite'}):'prompt';if(perm==='granted'){const f=await fileHandle.getFile();bytes=await f.arrayBuffer();name=f.name;direct=true}}catch(e){console.warn('Handle database lama tidak dapat dibaca:',e)}}await prepareWorkbook(bytes,name);autosaveMode=direct;$('saveMode').textContent=direct?'AUTOSAVE AKTIF':'DATABASE DIINGAT';$('saveMode').className='badge ok';setStatus(direct?'Database terakhir dimuat otomatis — <b>AUTOSAVE AKTIF</b>. Tidak perlu upload ulang.':'Database terakhir dan perubahan terakhir <b>dipulihkan otomatis</b> dari browser. Tidak perlu upload ulang. Saat Simpan, aplikasi akan mencoba mengaktifkan izin tulis ke file yang sama.','ok')}catch(e){console.error(e);setStatus('Database tersimpan ditemukan tetapi gagal dimuat: <b>'+esc(e.message)+'</b>. Silakan pilih database kembali melalui ⚙ DATABASE.','err')}}
+async function restoreLastDatabase(){
+  const rec=await getCachedDatabase();
+  if(!rec||!rec.bytes)return false;
+  try{
+    const started=performance.now();
+    setStatus('⚡ Membuka database lokal super cepat...');
+    fileHandle=rec.handle||null;
+    autosaveMode=false;
+    const bytes=rec.bytes;
+    const name=rec.name||'Database_Pagar_Nusa_BROWSER.xlsm';
+
+    // LOCAL-FIRST: jangan menunggu Drive / File System API.
+    await prepareWorkbook(bytes,name);
+
+    const elapsed=Math.max(1,Math.round(performance.now()-started));
+    $('saveMode').textContent='LOCAL SIAP';
+    $('saveMode').className='badge ok';
+    setStatus('⚡ Database lokal siap dalam <b>'+elapsed+' ms</b>. Cek versi cloud berjalan otomatis di belakang.','ok');
+
+    // Izin autosave diperiksa SETELAH tabel sudah tampil.
+    if(fileHandle&&rec.synced){
+      setTimeout(async()=>{
+        try{
+          let perm=fileHandle.queryPermission?await fileHandle.queryPermission({mode:'readwrite'}):'prompt';
+          if(perm==='granted'){
+            autosaveMode=true;
+            $('saveMode').textContent='AUTOSAVE AKTIF';
+            $('saveMode').className='badge ok';
+          }
+        }catch(e){console.warn('Izin autosave belum aktif:',e)}
+      },50);
+    }
+    return true;
+  }catch(e){
+    console.error(e);
+    setStatus('Database tersimpan ditemukan tetapi gagal dimuat: <b>'+esc(e.message)+'</b>. Silakan pilih database kembali melalui ⚙ DATABASE.','err');
+    return false;
+  }
+}
 
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function trim(v){return String(v??'').trim()}
