@@ -23,7 +23,8 @@ function renderRecords(scroll){
   let rows=[];
   for(let r=m.start;r<=m.end;r++){
     if(!recordExists(m,r))continue;
-    if(m.link&&selectedPerson){
+    // SP adalah arsip surat: tetap tampilkan semua penerima meskipun form sedang memilih satu siswa.
+    if(m.link&&selectedPerson&&activeModule!=='sp'){
       const id=trim(cellText(docs[m.sheet],cellMaps[m.sheet],m.primary+r));
       if(activeModule==='kehadiran'){
         const nm=trim(cellText(docs[m.sheet],cellMaps[m.sheet],'C'+r));
@@ -36,7 +37,7 @@ function renderRecords(scroll){
   count.textContent=rows.length+' data';
   if(!rows.length){
     const colSpan=Math.max(labels.length,1);
-    const filterInfo=selectedPerson?' untuk '+esc(selectedPerson.name):'';
+    const filterInfo=(selectedPerson&&activeModule!=='sp')?' untuk '+esc(selectedPerson.name):'';
     body.innerHTML='<tr><td colspan="'+colSpan+'" style="padding:20px;text-align:center;color:#64748b">Belum ada data '+esc(m.title)+filterInfo+' yang sesuai.</td></tr>';
   }else{
     for(const r of rows){
