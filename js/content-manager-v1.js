@@ -206,7 +206,7 @@ function panelHtml(){return `
 
 function setStatus(text,kind=''){const el=$('pnCmsStatus');if(!el)return;el.textContent=text;el.className='pnCmsStatus '+(kind==='ok'?'ok':kind==='err'?'err':'')}
 function setBusy(btn,busy,text){if(!btn)return;if(busy){btn.dataset.old=btn.textContent;btn.disabled=true;btn.textContent=text||'MEMPROSES...'}else{btn.disabled=false;btn.textContent=btn.dataset.old||btn.textContent}}
-function token(){try{return localStorage.getItem(TOKEN_KEY)||sessionStorage.getItem(TOKEN_KEY)||''}catch(_){return sessionStorage.getItem(TOKEN_KEY)||''}}
+function token(){try{return sessionStorage.getItem(TOKEN_KEY)||localStorage.getItem(TOKEN_KEY)||''}catch(_){try{return sessionStorage.getItem(TOKEN_KEY)||''}catch(__){return''}}}
 function saveToken(value){try{localStorage.setItem(TOKEN_KEY,String(value))}catch(_){};try{sessionStorage.setItem(TOKEN_KEY,String(value))}catch(_){}}
 function clearToken(){try{localStorage.removeItem(TOKEN_KEY)}catch(_){};try{sessionStorage.removeItem(TOKEN_KEY)}catch(_){}}
 function updateAccessButton(){const btn=$('pnCmsConnect');if(!btn)return;const active=!!token();btn.textContent=active?'✓ AKSES OTOMATIS':'🔐 HUBUNGKAN AKSES';btn.classList.toggle('light',active);btn.classList.toggle('teal',!active);btn.title=active?'Akses konten memakai sesi admin yang sudah tersimpan.':'Hubungkan akses konten online.'}
@@ -256,8 +256,8 @@ async function maybeSeed(){
   try{await postReliable('contentAdminSeed',{token:token(),contentJson:JSON.stringify(seed.content),galleryJson:JSON.stringify(seed.gallery)});setStatus('✓ Konten lama sudah dipindahkan ke database pengelola.','ok')}catch(err){setStatus('Konten lama belum dapat diimpor: '+err.message,'err')}
 }
 
-async function loadAdmin(){
-  if(!token()){setStatus('Akses konten belum aktif. Klik HUBUNGKAN AKSES dan masukkan password admin.');return}
+async function loadAdmin(retry=0){
+  if(!token()){setStatus('Akses konten belum aktif. Menunggu sesi login admin...');updateAccessButton();return false}
   try{
     let r=await jsonp('contentAdminList',{token:token()},18000);
     if(!r.ok)throw new Error(r.message||'Sesi admin konten tidak valid.');
@@ -266,8 +266,25 @@ async function loadAdmin(){
     window.__pnCmsAdminData=r;
     window.__pnCmsAdminLoadedAt=Date.now();
     window.dispatchEvent(new CustomEvent('pn:cms-admin-data',{detail:r}));
-    setStatus(`✓ Database konten online • ${adminContent.length} kabar/informasi • ${adminGallery.length} foto`,'ok');updateAccessButton();renderContentList();renderGalleryList();
-  }catch(err){const msg=String(err&&err.message||'');if(/sesi admin sudah dinonaktifkan|sesi verifikasi admin tidak valid|sesi admin perangkat tidak ditemukan/i.test(msg)){clearToken();try{localStorage.setItem('pnAdminAuth','1');sessionStorage.setItem('pnAdminAuth','1')}catch(_){}}updateAccessButton();setStatus(msg||'Gagal memuat database konten.','err')}
+    setStatus(`✓ Database konten online • ${adminContent.length} kabar/informasi • ${adminGallery.length} foto`,'ok');updateAccessButton();renderContentList();renderGalleryList();return true;
+  }catch(err){
+    const msg=String(err&&err.message||'');
+    const sessionPending=/sesi admin sudah dinonaktifkan|sesi verifikasi admin tidak valid|sesi admin perangkat tidak ditemukan/i.test(msg);
+    const adminActive=(()=>{try{return localStorage.getItem('pnAdminAuth')==='1'||sessionStorage.getItem('pnAdminAuth')==='1'}catch(_){return false}})();
+    if(sessionPending&&adminActive&&retry<4){
+      const waits=[700,1100,1700,2400];
+      setStatus('Menyelesaikan akses otomatis admin... percobaan '+(retry+1)+'/4');
+      await sleep(waits[retry]||1200);
+      return loadAdmin(retry+1);
+    }
+    if(sessionPending){
+      clearToken();
+      try{localStorage.setItem('pnAdminAuth','1');sessionStorage.setItem('pnAdminAuth','1')}catch(_){}
+    }
+    updateAccessButton();
+    setStatus(msg||'Gagal memuat database konten.','err');
+    return false;
+  }
 }
 
 function resetContent(){editingContentId='';$('pnCmsType').value='BERITA';$('pnCmsContentStatus').value='PUBLIK';$('pnCmsTitle').value='';$('pnCmsSummary').value='';$('pnCmsBody').value='';$('pnCmsDate').value=today();$('pnCmsBadge').value='';$('pnCmsOrder').value=String(Math.max(1,adminContent.length+1));$('pnCmsLink').value='';$('pnCmsSaveContent').textContent='💾 SIMPAN & PUBLIKASIKAN'}
