@@ -325,6 +325,11 @@ function installFastLogin(){
 }
 
 window.addEventListener('pn:admin-authenticated',event=>{
+  if(window.__pnCentralAdminAutoSessionV1){
+    takeoverPanel();
+    setState('loading','Login admin berhasil. Menyambungkan database otomatis...');
+    return;
+  }
   const detail=event&&event.detail||{};
   const username=String(detail.username||'').trim();
   const password=String(detail.password||'');
@@ -332,6 +337,15 @@ window.addEventListener('pn:admin-authenticated',event=>{
   takeoverPanel();
   setState('loading','Login admin berhasil. Menyambungkan database otomatis...');
   void connect(username,password);
+});
+window.addEventListener('pn:admin-session-ready',()=>{
+  takeoverPanel();
+  void loadRows({quiet:true});
+});
+window.addEventListener('pn:admin-session-error',event=>{
+  takeoverPanel();
+  const msg=String(event?.detail?.message||'Sesi admin otomatis belum aktif.');
+  setState('error',msg);
 });
 
 function boot(){
