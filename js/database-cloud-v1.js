@@ -889,6 +889,45 @@ window.afterMutation=async function(msg){
   }
 };
 
+window.pnSyncGoogleSheetsNow=async function(){
+  const status=document.getElementById('status');
+  try{
+    const token=await pnOnlineToken();
+    if(!token)throw new Error('Sesi Admin Google Sheets belum aktif. Silakan login Admin sekali lagi.');
+
+    if(status){status.className='status';status.innerHTML='↻ <b>Menyinkronkan Google Sheets...</b>'}
+    pnCloudStatus('SHEETS MENYIMPAN...');
+
+    const pending=await pnFlushOnlinePatches();
+    if(zipEntries){
+      await pnRefreshOnlineCore(true);
+      if(typeof activeModule!=='undefined'&&typeof modules!=='undefined'&&modules[activeModule]){
+        const m=modules[activeModule];
+        if(m.sheet!=='Data Siswa'&&m.sheet!=='Data Pengurus'){
+          await pnRefreshOnlineSheet(m.sheet,activeModule,true);
+        }
+      }
+    }
+
+    pnCloudStatus('GOOGLE SHEETS ONLINE');
+    pnSetLastSync(new Date().toISOString());
+    pnRenderLastSync('success');
+    if(status){
+      status.className='status ok';
+      status.innerHTML='✓ <b>GOOGLE SHEETS ONLINE.</b> Semua perubahan yang tertunda sudah dikirim dan data terbaru sudah dibaca dari Drive'+(pending&&pending.count?(' ('+pending.count+' sel disimpan).'):'.');
+    }
+    return true;
+  }catch(err){
+    pnCloudStatus('SHEETS TERTUNDA');
+    pnRenderLastSync('error');
+    if(status){
+      status.className='status err';
+      status.innerHTML='Google Sheets belum selesai disinkronkan: <b>'+esc(err&&err.message||err)+'</b>';
+    }
+    return false;
+  }
+};
+
 async function pnMaybeLoadCloud(force=false){
   if(!pnDatabasePanelOpen())return false;
   if(pnCloudBusy||pnCloudSaveBusy)return false;
@@ -904,8 +943,8 @@ async function pnMaybeLoadCloud(force=false){
   if(!token)return false;
 
   if(!zipEntries){
-    pnCloudStatus('AMBIL TEMPLATE XLSM...');
-    setStatus('Perangkat ini belum memiliki template Excel lokal. Mengambil template sekali dari Drive, lalu data LIVE dibaca dari Google Sheets...','ok');
+    pnCloudStatus('MENYIAPKAN DATA...');
+    setStatus('Menyiapkan mesin data perangkat ini. Setelah siap, seluruh data LIVE dibaca dari Google Sheets...','ok');
     const loaded=await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
     if(loaded){
       setTimeout(async()=>{
