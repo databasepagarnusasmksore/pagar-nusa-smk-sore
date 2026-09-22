@@ -396,33 +396,17 @@ function pnEnsureHistoryUi(){
   const syncNow=document.createElement('button');
   syncNow.id='pnCloudSyncNow';
   syncNow.type='button';
-  syncNow.textContent='💾 BACKUP XLSM KE DRIVE';
+  syncNow.textContent='↻ SINKRONKAN GOOGLE SHEETS';
   syncNow.style.cssText='width:100%;margin:8px 0 0;padding:11px 12px;border:0;border-radius:9px;background:#0f766e;color:#fff;font-weight:900;cursor:pointer';
   syncNow.onclick=async()=>{
     syncNow.disabled=true;
     const old=syncNow.textContent;
+    syncNow.textContent='↻ MENYINKRONKAN...';
     try{
-      let token=pnDbToken();
-      if(!token&&typeof window.pnEnsureAdminServerSessionV1==='function'){
-        token=await window.pnEnsureAdminServerSessionV1();
-      }
-      if(!token)throw new Error('Sesi Admin/cloud belum aktif.');
-
-      if(!zipEntries){
-        syncNow.textContent='💾 MENGAMBIL TEMPLATE XLSM...';
-        pnCloudStatus('AMBIL CLOUD...');
-        const loaded=await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
-        if(!loaded)throw new Error('Master cloud belum berhasil dimuat.');
-        pnCloudStatus('CLOUD SIAP');
-        return;
-      }
-
-      syncNow.textContent='💾 BACKUP XLSM...';
-      pnCloudGeneration++;
-      pnSetPending('update');
-      await pnRunQueuedCloudSync();
+      if(typeof window.pnSyncGoogleSheetsNow!=='function')throw new Error('Modul Google Sheets belum siap.');
+      await window.pnSyncGoogleSheetsNow();
     }catch(err){
-      setStatus('Cloud belum dapat disiapkan: <b>'+esc(err.message)+'</b>','err');
+      setStatus('Google Sheets belum dapat disinkronkan: <b>'+esc(err&&err.message||err)+'</b>','err');
     }finally{
       syncNow.disabled=false;
       syncNow.textContent=old;
@@ -531,7 +515,7 @@ async function pnDownloadCloudWorkbook(token,quiet,options={}){
   const sameName=!serverName||!localName||serverName===localName;
   if(!forceDownload&&zipEntries&&serverUpdated&&localUpdated===serverUpdated&&sameName){
     pnCloudStatus('CLOUD TERBARU');
-    if(!quiet)setStatus('✓ Database browser sudah sama dengan <b>SERVER CLOUD</b>. Tidak perlu download ulang file Excel.','ok');
+    if(!quiet)setStatus('✓ Database browser sudah sama dengan <b>SERVER CLOUD</b>. Tidak perlu mengambil ulang data internal.','ok');
     return {exists:true,reusedLocal:true,fileId:manifest.fileId||'',name:manifest.name,size,updatedAt:manifest.updatedAt};
   }
 
@@ -581,11 +565,11 @@ async function pnRestoreCloudDatabase(options={}){
   pnCloudBusy=true;
   pnCloudCheckedToken=token;
   try{
-    if(!quiet)setStatus('Menghubungkan database Excel utama dari server...');
+    if(!quiet)setStatus('Menyiapkan mesin data dari server...');
     const result=await pnDownloadCloudWorkbook(token,quiet,options);
     if(!result.exists){
       pnCloudLoaded=false;
-      if(!quiet)setStatus('Database Excel pusat belum tersedia. Upload database sekali dari perangkat utama.');
+      if(!quiet)setStatus('Mesin data perangkat belum tersedia. Sistem sedang menyiapkan sumber data.');
       return false;
     }
 
@@ -614,7 +598,7 @@ async function pnRestoreCloudDatabase(options={}){
     pnCloudStatus();
     pnSetLastSync(result.updatedAt);
     pnSetMasterFileId(result.fileId);
-    setStatus('✓ Database utama dimuat dari <b>SERVER CLOUD</b>. Data yang sama siap digunakan dari perangkat ini.','ok');
+    setStatus('✓ Mesin data siap. Data aktif dibaca dari <b>GOOGLE SHEETS</b>.','ok');
     return true;
   }catch(err){
     console.warn('Database cloud belum dapat dimuat:',err);
