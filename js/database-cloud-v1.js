@@ -10,6 +10,10 @@ const PN_DB_MASTER_ID_KEY='pnExcelCloudMasterFileIdV1';
 const PN_DB_SYNC_DELAY=120;
 const PN_DB_DOWNLOAD_CONCURRENCY=4;
 const PN_DB_BACKGROUND_CHECK_MS=30*1000;
+const PN_ONLINE_DB_VERSION_KEY='pnOnlineDatabaseVersionV1';
+const PN_ONLINE_DB_SHEET_PREFIX='pnOnlineSheetVersionV1:';
+const PN_ONLINE_DB_URL='https://docs.google.com/spreadsheets/d/1fg-zsfYnK6nCJZTOT-xzICkUOMgmMKTPOLWPtvHLOnM/edit';
+const PN_ONLINE_DB_SHEETS=new Set(['Data Siswa','Data Pengurus','Data Alumni','Kehadiran','Kenaikan Tingkat','Prestasi','Iuran','Data Pelanggaran','Data SP 1-3','Data Keluar']);
 
 let pnCloudBusy=false;
 let pnCloudLoaded=false;
@@ -21,6 +25,10 @@ let pnCloudSaveTimer=0;
 let pnCloudSaveQueued=false;
 let pnCloudGeneration=0;
 let pnCloudLastBackgroundCheck=0;
+let pnOnlinePatchMap=new Map();
+let pnOnlineApplySuspend=false;
+let pnOnlineSyncBusy=false;
+let pnOnlineRefreshBusy=new Set();
 
 function pnDatabasePanelOpen(){
   const drawer=document.getElementById('dbDrawer');
@@ -31,6 +39,115 @@ function pnDbToken(){
   try{return localStorage.getItem(PN_DB_TOKEN_KEY)||sessionStorage.getItem(PN_DB_TOKEN_KEY)||''}
   catch(_){try{return sessionStorage.getItem(PN_DB_TOKEN_KEY)||''}catch(__){return''}}
 }
+function pnOnlineCellKey(sheet,address){return String(sheet||'')+'!'+String(address||'').toUpperCase()}
+function pnOnlineSheetVersion(sheet){try{return localStorage.getItem(PN_ONLINE_DB_SHEET_PREFIX+sheet)||''}catch(_){return''}}
+function pnSetOnlineSheetVersion(sheet,version){try{if(version)localStorage.setItem(PN_ONLINE_DB_SHEET_PREFIX+sheet,String(version))}catch(_){}}
+function pnSetOnlineVersion(version){try{if(version)localStorage.setItem(PN_ONLINE_DB_VERSION_KEY,String(version))}catch(_){}}
+function pnColName(n){let s='';while(n>0){n--;s=String.fromCharCode(65+(n%26))+s;n=Math.floor(n/26)}return s}
+
+window.pnRecordOnlineCellPatch=function(sheet,address,value,clear=false){
+  if(pnOnlineApplySuspend||!PN_ONLINE_DB_SHEETS.has(String(sheet||'')))return;
+  const a=String(address||'').toUpperCase();
+  if(!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(a))return;
+  pnOnlinePatchMap.set(pnOnlineCellKey(sheet,a),{sheet:String(sheet),address:a,value:value??'',clear:!!clear});
+};
+
+async function pnOnlineToken(){
+  let token=pnDbToken();
+  if(!token&&typeof window.pnEnsureAdminServerSessionV1==='function'){
+    try{token=await window.pnEnsureAdminServerSessionV1()}catch(_){}
+  }
+  return token||'';
+}
+
+async function pnFlushOnlinePatches(){
+  if(pnOnlineSyncBusy||!pnOnlinePatchMap.size)return {ok:true,count:0};
+  const token=await pnOnlineToken();
+  if(!token)throw new Error('Sesi Admin untuk Google Sheets belum aktif.');
+  const entries=[...pnOnlinePatchMap.entries()];
+  const patches=entries.map(x=>x[1]);
+  pnOnlineSyncBusy=true;
+  pnCloudStatus('SHEETS MENYIMPAN...');
+  pnRenderLastSync('pending');
+  try{
+    const result=await pnDatabasePost('databaseSheetPatch',{token,patches:JSON.stringify(patches)},30000);
+    for(const [key,snapshot] of entries){
+      const current=pnOnlinePatchMap.get(key);
+      if(current&&JSON.stringify(current)===JSON.stringify(snapshot))pnOnlinePatchMap.delete(key);
+    }
+    const touched=[...new Set(patches.map(p=>p.sheet))];
+    touched.forEach(sh=>pnSetOnlineSheetVersion(sh,result.version));
+    pnSetOnlineVersion(result.version);
+    pnSetLastSync(new Date().toISOString());
+    pnCloudStatus('GOOGLE SHEETS ONLINE');
+    return result;
+  }finally{pnOnlineSyncBusy=false}
+}
+
+async function pnRefreshOnlineSheet(sheet,moduleKey='',force=false){
+  sheet=String(sheet||'');
+  if(!PN_ONLINE_DB_SHEETS.has(sheet)||!zipEntries||!docs[sheet]||pnOnlineRefreshBusy.has(sheet))return false;
+  const token=await pnOnlineToken();
+  if(!token)return false;
+  pnOnlineRefreshBusy.add(sheet);
+  try{
+    const status=await pnDatabaseJsonp('databaseOnlineStatus',{token},12000);
+    const serverVersion=String(status.version||'0');
+    if(!force&&pnOnlineSheetVersion(sheet)===serverVersion)return true;
+    pnCloudStatus('AMBIL '+sheet.toUpperCase());
+    const r=await pnDatabaseJsonp('databaseSheetRead',{token,sheet},30000);
+    const values=Array.isArray(r.values)?r.values:[];
+    pnOnlineApplySuspend=true;
+    try{
+      for(let rr=0;rr<values.length;rr++){
+        const row=values[rr]||[];
+        for(let cc=0;cc<row.length;cc++){
+          const addr=pnColName(cc+1)+(rr+1);
+          const incoming=row[cc]??'';
+          const current=cellText(docs[sheet],cellMaps[sheet],addr);
+          if(String(current)===String(incoming??''))continue;
+          if(incoming===''||incoming===null)clearCell(sheet,addr,true);
+          else writeOrCache(sheet,addr,incoming,typeof incoming==='number');
+        }
+      }
+      const m=(typeof modules!=='undefined'&&moduleKey&&modules[moduleKey])?modules[moduleKey]:null;
+      if(m&&m.sheet===sheet&&m.primary){
+        let localLast=m.start-1;
+        for(let row=m.end;row>=m.start;row--){if(trim(cellText(docs[sheet],cellMaps[sheet],m.primary+row))){localLast=row;break}}
+        const serverLast=Math.max(1,Number(r.rows||values.length||1));
+        if(localLast>serverLast){
+          const cols=Math.max(1,Number(r.cols||0));
+          for(let row=serverLast+1;row<=localLast;row++){
+            for(let col=1;col<=cols;col++){
+              const addr=pnColName(col)+row;
+              if(trim(cellText(docs[sheet],cellMaps[sheet],addr)))clearCell(sheet,addr,true);
+            }
+          }
+        }
+      }
+    }finally{
+      pnOnlineApplySuspend=false;
+      dirtySheets.delete(sheet);
+    }
+    pnSetOnlineSheetVersion(sheet,r.version||serverVersion);
+    pnSetOnlineVersion(r.version||serverVersion);
+    pnCloudStatus('GOOGLE SHEETS ONLINE');
+    if(typeof activeModule!=='undefined'&&moduleKey===activeModule){
+      if(typeof renderRecords==='function')renderRecords(false);
+      if(moduleKey==='attendance'&&typeof loadAttendanceCurrent==='function')loadAttendanceCurrent();
+    }
+    return true;
+  }catch(err){
+    console.warn('Refresh Google Sheets gagal:',sheet,err);
+    return false;
+  }finally{pnOnlineRefreshBusy.delete(sheet)}
+}
+
+window.addEventListener('pn:module-open',event=>{
+  const d=event.detail||{};
+  setTimeout(()=>pnRefreshOnlineSheet(d.sheet,d.module,false),30);
+});
+
 function pnPending(){
   try{return localStorage.getItem(PN_DB_PENDING_KEY)||''}catch(_){return''}
 }
@@ -205,7 +322,7 @@ function pnEnsureHistoryUi(){
   const syncNow=document.createElement('button');
   syncNow.id='pnCloudSyncNow';
   syncNow.type='button';
-  syncNow.textContent='☁ SINKRONKAN CLOUD SEKARANG';
+  syncNow.textContent='💾 BACKUP XLSM KE DRIVE';
   syncNow.style.cssText='width:100%;margin:8px 0 0;padding:11px 12px;border:0;border-radius:9px;background:#0f766e;color:#fff;font-weight:900;cursor:pointer';
   syncNow.onclick=async()=>{
     syncNow.disabled=true;
@@ -218,7 +335,7 @@ function pnEnsureHistoryUi(){
       if(!token)throw new Error('Sesi Admin/cloud belum aktif.');
 
       if(!zipEntries){
-        syncNow.textContent='☁ MENGAMBIL MASTER CLOUD...';
+        syncNow.textContent='💾 MENGAMBIL TEMPLATE XLSM...';
         pnCloudStatus('AMBIL CLOUD...');
         const loaded=await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
         if(!loaded)throw new Error('Master cloud belum berhasil dimuat.');
@@ -226,7 +343,7 @@ function pnEnsureHistoryUi(){
         return;
       }
 
-      syncNow.textContent='☁ MENYIMPAN CLOUD...';
+      syncNow.textContent='💾 BACKUP XLSM...';
       pnCloudGeneration++;
       pnSetPending('update');
       await pnRunQueuedCloudSync();
@@ -238,6 +355,15 @@ function pnEnsureHistoryUi(){
     }
   };
   sync.insertAdjacentElement('afterend',syncNow);
+
+  const live=document.createElement('a');
+  live.id='pnOnlineDbLive';
+  live.href=PN_ONLINE_DB_URL;
+  live.target='_blank';
+  live.rel='noopener';
+  live.textContent='🟢 BUKA DATABASE GOOGLE SHEETS LIVE';
+  live.style.cssText='display:block;text-align:center;text-decoration:none;width:100%;box-sizing:border-box;margin:8px 0 0;padding:11px 12px;border:0;border-radius:9px;background:#15803d;color:#fff;font-weight:900;cursor:pointer';
+  syncNow.insertAdjacentElement('beforebegin',live);
 
   const btn=document.createElement('button');
   btn.id='pnHistoryBtn';btn.type='button';btn.textContent='🕘 RIWAYAT PERUBAHAN';
@@ -670,45 +796,23 @@ if(typeof pnOriginalPersistWorkingCopy==='function'){
   window.persistWorkingCopy=async function(){
     const localResult=await pnOriginalPersistWorkingCopy();
     if(!zipEntries)return localResult;
-
-    // Local/browser save is the fast path. Cloud sync is queued in the background.
     dirty=false;
     dirtySheets.clear();
-
-    const token=pnDbToken();
-    if(!token){
-      pnSetPending('update');
-      pnRenderLastSync('pending');
-      return Object.assign({},localResult,{
-        cloud:false,
-        cloudQueued:false,
-        cloudWarning:'Sesi database pusat belum aktif. Perubahan ditandai untuk sinkronisasi saat sesi tersedia.'
-      });
-    }
-
-    const queued=pnScheduleCloudSync(true);
-    return Object.assign({},localResult,{
-      cloud:false,
-      cloudQueued:queued
-    });
+    return Object.assign({},localResult,{cloud:false,cloudQueued:false,onlinePrimary:true});
   };
 }
 
 window.afterMutation=async function(msg){
-  const p=await window.persistWorkingCopy();
-
+  await window.persistWorkingCopy();
   void pnLogDatabaseHistory(msg);
-
-  if(p&&p.cloudQueued){
-    pnCloudStatus('MENUNGGU CLOUD');
-    setStatus('<b>'+esc(msg)+'</b>. Lokal sudah tersimpan. ☁ <b>Cloud sedang disinkronkan sekarang</b> — tunggu sampai status CLOUD TERSIMPAN sebelum pindah perangkat.','ok');
-    return;
+  try{
+    const r=await pnFlushOnlinePatches();
+    setStatus('<b>'+esc(msg)+'</b>. ✓ <b>TERSIMPAN DI GOOGLE SHEETS</b> dan siap dibuka dari perangkat lain'+(r.count?(' ('+r.count+' sel diperbarui).'):'.'),'ok');
+  }catch(err){
+    pnRenderLastSync('error');
+    pnCloudStatus('SHEETS TERTUNDA');
+    setStatus('<b>'+esc(msg)+'</b>. Lokal aman, tetapi Google Sheets belum tersimpan: <b>'+esc(err.message)+'</b>. Akan dicoba lagi otomatis.','err');
   }
-  if(p&&p.direct){
-    setStatus('<b>'+esc(msg)+'</b>. Tersimpan ke file lokal. Sinkronisasi cloud belum aktif'+(p.cloudWarning?': '+esc(p.cloudWarning):'.'),'err');
-    return;
-  }
-  setStatus('<b>'+esc(msg)+'</b>. Tersimpan di browser'+(p&&p.cloudWarning?', tetapi cloud belum aktif: '+esc(p.cloudWarning):'.'),'ok');
 };
 
 async function pnMaybeLoadCloud(force=false){
@@ -726,10 +830,17 @@ async function pnMaybeLoadCloud(force=false){
   if(!token)return false;
 
   if(!zipEntries){
-    pnCloudStatus('AMBIL CLOUD...');
-    setStatus('☁ Perangkat ini belum memiliki database lokal. Mengambil master terbaru dari cloud...','ok');
-    return await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
+    pnCloudStatus('AMBIL TEMPLATE XLSM...');
+    setStatus('Perangkat ini belum memiliki template Excel lokal. Mengambil template sekali dari Drive, lalu data LIVE dibaca dari Google Sheets...','ok');
+    const loaded=await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
+    if(loaded&&typeof activeModule!=='undefined'&&typeof modules!=='undefined'&&modules[activeModule]){
+      setTimeout(()=>pnRefreshOnlineSheet(modules[activeModule].sheet,activeModule,true),60);
+    }
+    return loaded;
   }
+
+  pnCloudStatus('GOOGLE SHEETS ONLINE');
+  return true;
 
   const pending=pnPending();
   if(pending==='initial'){
@@ -757,9 +868,13 @@ setTimeout(()=>pnEnsureHistoryUi(),180);
 window.addEventListener('pn:database-panel-open',()=>{
   setTimeout(()=>pnMaybeLoadCloud(true),60);
 });
-setInterval(()=>{if(pnDatabasePanelOpen())pnMaybeLoadCloud(false)},PN_DB_BACKGROUND_CHECK_MS);
+setInterval(()=>{
+  if(pnOnlinePatchMap.size)pnFlushOnlinePatches().catch(()=>{});
+  if(pnDatabasePanelOpen())pnMaybeLoadCloud(false);
+},PN_DB_BACKGROUND_CHECK_MS);
 window.addEventListener('online',()=>{
   pnCloudCheckedToken='';
+  if(pnOnlinePatchMap.size)pnFlushOnlinePatches().catch(()=>{});
   pnMaybeLoadCloud();
 });
 })();
