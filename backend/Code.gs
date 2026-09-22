@@ -122,7 +122,7 @@ function doGet(e) {
       backupAutomaticVersion:'1',
       backupRetentionDays:PN_BACKUP_RETENTION_DAYS,
       excelCloud:true,
-      excelCloudVersion:'5',
+      excelCloudVersion:'6',
       excelCloudChunkUpload:true,
       adminNotificationCenter:true,
       adminNotificationCenterVersion:'1',
