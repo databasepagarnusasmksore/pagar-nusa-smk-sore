@@ -51,10 +51,32 @@ function ensureAspelPanel(){
   bioCard.insertAdjacentElement('afterend',card);return card;
 }
 function renderAspel(info){
-  const card=ensureAspelPanel();if(!card)return;const members=Array.isArray(info?.members)?info.members:[];if(!members.length){card.classList.add('hidden');return;}
-  const summary=card.querySelector('#aspelSummary');const list=card.querySelector('#aspelMemberList');summary.innerHTML=`<strong>${members.length} calon anggota terhubung dengan tugas Aspel Anda</strong><span class="aspelRoleList"><span class="aspelRolePill">${members.length} Calon Anggota</span></span>`;
-  list.innerHTML=members.map((m,index)=>{const classProgram=[m.className,m.program].filter(Boolean).join(' · ');const meta=[m.memberId,classProgram,m.entryYear?`Masuk ${m.entryYear}`:''].filter(Boolean).join(' · ');const pendamping=[m.member1,m.member2].filter(Boolean).join(' / ')||'-';return `<div class="aspelMemberCard"><div class="aspelMemberTop"><div><div class="aspelMemberName">${esc(m.name)}</div><div class="aspelMemberMeta">${esc(meta)}</div></div><span class="aspelMemberRole">Calon Anggota ${index+1}</span></div><div class="aspelTeam"><b>Koordinator:</b> ${esc(m.coordinator||'-')}<br><b>Anggota Aspel:</b> ${esc(pendamping)}</div></div>`;}).join('');
+  const card=ensureAspelPanel();if(!card)return;
+  const members=Array.isArray(info?.members)?info.members:[];
+  if(!members.length){card.classList.add('hidden');return;}
+
+  const summary=card.querySelector('#aspelSummary');
+  const list=card.querySelector('#aspelMemberList');
+  const roles=Array.isArray(info?.roles)?info.roles:[];
+  const roleText=roles.map(r=>String(r||'').replace('Anggota Aspel 1','Anggota Koordinator').replace('Anggota Aspel 2','Anggota Koordinator'));
+  const rolePills=roleText.length
+    ? roleText.map(r=>`<span class="aspelRolePill">${esc(r)}</span>`).join('')
+    : '<span class="aspelRolePill">Pendamping ASPEL</span>';
+
+  summary.innerHTML=`<strong>${members.length} calon anggota yang terhubung dengan tugas koordinasi Anda</strong><span class="aspelRoleList">${rolePills}<span class="aspelRolePill">${members.length} Dampingan</span></span>`;
+
+  list.innerHTML=members.map((m,index)=>{
+    const classProgram=[m.className,m.program].filter(Boolean).join(' · ');
+    const meta=[m.memberId,classProgram,m.entryYear?`Masuk ${m.entryYear}`:''].filter(Boolean).join(' · ');
+    const anggotaKoordinator=[m.member1,m.member2].filter(Boolean).join(' / ')||'-';
+    const peran=String(m.role||'')
+      .replace('Anggota Aspel 1','Anggota Koordinator')
+      .replace('Anggota Aspel 2','Anggota Koordinator');
+    return `<div class="aspelMemberCard"><div class="aspelMemberTop"><div><div class="aspelMemberName">${esc(m.name)}</div><div class="aspelMemberMeta">${esc(meta)}</div></div><span class="aspelMemberRole">Calon Anggota ${index+1}</span></div><div class="aspelTeam"><b>Peran Anda:</b> ${esc(peran||'-')}<br><b>Koordinator:</b> ${esc(m.coordinator||'-')}<br><b>Anggota Koordinator:</b> ${esc(anggotaKoordinator)}</div></div>`;
+  }).join('');
   card.classList.remove('hidden');
 }
-window.addEventListener('message',event=>{const d=event.data;if(!d||d.source!=='pn-biodata'||!d.ok)return;if(d.biodata)schedule(d.biodata);renderAspel(d.aspel);});
+window.addEventListener('message',event=>{const d=event.data;if(!d||d.source!=='pn-biodata'||!d.ok)return;if(d.biodata)schedule(d.biodata);if(d.aspel)renderAspel(d.aspel);});
+window.addEventListener('pn:biodata-aspel',event=>renderAspel(event.detail));
+window.pnRenderBiodataAspelV5=renderAspel;
 })();
