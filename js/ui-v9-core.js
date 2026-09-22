@@ -122,6 +122,17 @@ async function submitAdminLogin(ev){
     window.__pnAdminEphemeralCredentials={username:u,password:p,createdAt:Date.now()};
     try{window.dispatchEvent(new CustomEvent('pn:admin-credentials-ready'))}catch(_){}
 
+    // Siapkan token Google Sheets langsung saat login, agar menu DATABASE
+    // tidak perlu menunggu / meminta login kedua.
+    if(typeof window.pnEnsureAdminServerSessionV1==='function'){
+      try{
+        await Promise.race([
+          window.pnEnsureAdminServerSessionV1(),
+          new Promise(resolve=>setTimeout(resolve,4500))
+        ]);
+      }catch(e){console.warn('Sesi server akan dicoba lagi otomatis:',e)}
+    }
+
     const passEl=document.getElementById('adminPass');
     if(passEl)passEl.value='';
 
