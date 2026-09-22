@@ -939,7 +939,7 @@ function getAspelSupervision_(book, memberId, possibleNames) {
   const sheet = book.getSheetByName(PN_BIODATA_SHEET_NAME);
   if (!sheet) return {isAspel:false,total:0,coordinatorCount:0,memberCount:0,roles:[],members:[]};
 
-  const aliases = new Set((possibleNames || []).map(normalizeAspelName_).filter(Boolean));
+  const aliases = new Set([memberId].concat(possibleNames || []).map(normalizeAspelName_).filter(Boolean));
   if (!aliases.size) return {isAspel:false,total:0,coordinatorCount:0,memberCount:0,roles:[],members:[]};
 
   const last = sheet.getLastRow();
