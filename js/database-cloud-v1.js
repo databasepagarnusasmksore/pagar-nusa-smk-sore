@@ -31,6 +31,20 @@ let pnOnlineApplySuspend=false;
 let pnOnlineSyncBusy=false;
 let pnOnlineSyncPromise=null;
 let pnOnlineRefreshBusy=new Set();
+let pnOnlinePrimePromise=null;
+let pnOnlinePrimedAt=0;
+const PN_ONLINE_MODULE_BY_SHEET={
+  'Data Siswa':'siswa',
+  'Data Pengurus':'pengurus',
+  'Data Alumni':'alumni',
+  'Kehadiran':'kehadiran',
+  'Kenaikan Tingkat':'kenaikan',
+  'Prestasi':'prestasi',
+  'Iuran':'iuran',
+  'Data Pelanggaran':'pelanggaran',
+  'Data SP 1-3':'sp',
+  'Data Keluar':'keluar'
+};
 
 function pnDatabasePanelOpen(){
   const drawer=document.getElementById('dbDrawer');
@@ -148,11 +162,14 @@ async function pnRefreshOnlineSheet(sheet,moduleKey='',force=false){
   if(!token)return false;
   pnOnlineRefreshBusy.add(sheet);
   try{
-    const status=await pnDatabaseJsonp('databaseOnlineStatus',{token},12000);
-    const serverVersion=String(status.version||'0');
-    if(!force&&pnOnlineSheetVersion(sheet)===serverVersion)return true;
+    let serverVersion='';
+    if(!force){
+      const status=await pnDatabaseJsonp('databaseOnlineStatus',{token,sheet},8000);
+      serverVersion=String(status.sheetVersion||status.version||'0');
+      if(serverVersion&&pnOnlineSheetVersion(sheet)===serverVersion)return true;
+    }
     pnCloudStatus('AMBIL '+sheet.toUpperCase());
-    const r=await pnDatabaseJsonp('databaseSheetRead',{token,sheet},30000);
+    const r=await pnDatabaseJsonp('databaseSheetRead',{token,sheet},20000);
     const values=Array.isArray(r.values)?r.values:[];
     pnOnlineApplySuspend=true;
     try{
@@ -186,8 +203,8 @@ async function pnRefreshOnlineSheet(sheet,moduleKey='',force=false){
       pnOnlineApplySuspend=false;
       dirtySheets.delete(sheet);
     }
-    pnSetOnlineSheetVersion(sheet,r.version||serverVersion);
-    pnSetOnlineVersion(r.version||serverVersion);
+    pnSetOnlineSheetVersion(sheet,r.sheetVersion||r.version||serverVersion);
+    pnSetOnlineVersion(r.version||r.sheetVersion||serverVersion);
     pnCloudStatus('GOOGLE SHEETS ONLINE');
     if(typeof activeModule!=='undefined'&&moduleKey===activeModule){
       if(typeof renderRecords==='function')renderRecords(false);
@@ -212,14 +229,89 @@ async function pnRefreshOnlineCore(force=false){
   return true;
 }
 
+async function pnEnsureOnlineEngine(){
+  if(zipEntries)return true;
+  if(typeof window.pnStartLastDatabaseRestore==='function'){
+    try{await window.pnStartLastDatabaseRestore()}catch(_){}
+  }else if(typeof pnStartLastDatabaseRestore==='function'){
+    try{await pnStartLastDatabaseRestore()}catch(_){}
+  }
+  if(zipEntries)return true;
+
+  // Perangkat baru hanya sekali perlu mengambil template/mesin XLSM.
+  // Sesudah tersimpan di IndexedDB, login berikutnya langsung memakai Google Sheets.
+  pnCloudStatus('SIAPKAN MESIN SEKALI...');
+  const loaded=await pnRestoreCloudDatabase({quiet:true,forceDownload:true});
+  return !!(loaded&&zipEntries);
+}
+
+async function pnPrimeGoogleSheets(force=true){
+  if(pnOnlinePrimePromise)return pnOnlinePrimePromise;
+  pnOnlinePrimePromise=(async()=>{
+    const token=await pnOnlineToken();
+    if(!token)throw new Error('Sesi Admin Google Sheets belum aktif.');
+
+    const engineReady=await pnEnsureOnlineEngine();
+    if(!engineReady)throw new Error('Mesin database perangkat belum siap.');
+
+    pnCloudStatus('AMBIL GOOGLE SHEETS...');
+    if(typeof setStatus==='function'){
+      setStatus('↻ Memuat data terbaru langsung dari <b>Google Sheets</b>...','ok');
+    }
+
+    // Data inti yang dipakai dashboard dan pencarian dimuat langsung.
+    await pnRefreshOnlineCore(true);
+
+    // Modul yang sedang aktif ikut dimuat sebelum status READY ditampilkan.
+    if(typeof activeModule!=='undefined'&&typeof modules!=='undefined'&&modules[activeModule]){
+      const m=modules[activeModule];
+      if(m&&m.sheet&&m.sheet!=='Data Siswa'&&m.sheet!=='Data Pengurus'){
+        await pnRefreshOnlineSheet(m.sheet,activeModule,true);
+      }
+    }
+
+    pnOnlinePrimedAt=Date.now();
+    pnCloudStatus('GOOGLE SHEETS LIVE');
+    pnSetLastSync(new Date().toISOString());
+    pnRenderLastSync('success');
+    if(typeof setStatus==='function'){
+      setStatus('✓ <b>GOOGLE SHEETS LIVE.</b> Data terbaru sudah tampil. SIMPAN / UBAH / HAPUS ditulis ke Sheets terlebih dahulu.','ok');
+    }
+
+    // Prefetch modul lain hanya untuk mempercepat perpindahan menu.
+    setTimeout(()=>{
+      const skip=new Set(['Data Siswa','Data Pengurus']);
+      if(typeof activeModule!=='undefined'&&typeof modules!=='undefined'&&modules[activeModule])skip.add(modules[activeModule].sheet);
+      const queue=[...PN_ONLINE_DB_SHEETS].filter(sh=>!skip.has(sh)&&docs[sh]);
+      let cursor=0;
+      const worker=async()=>{
+        while(cursor<queue.length){
+          const sh=queue[cursor++];
+          const key=PN_ONLINE_MODULE_BY_SHEET[sh]||'';
+          try{await pnRefreshOnlineSheet(sh,key,false)}catch(_){}
+        }
+      };
+      Promise.all([worker(),worker()]).catch(()=>{});
+    },80);
+
+    return true;
+  })();
+
+  try{return await pnOnlinePrimePromise}
+  finally{pnOnlinePrimePromise=null}
+}
+window.pnPrimeGoogleSheets=pnPrimeGoogleSheets;
+
 window.addEventListener('pn:module-open',event=>{
   const d=event.detail||{};
   setTimeout(async()=>{
-    await pnRefreshOnlineCore(false);
-    if(d.sheet!=='Data Siswa'&&d.sheet!=='Data Pengurus'){
-      await pnRefreshOnlineSheet(d.sheet,d.module,false);
-    }
-  },30);
+    try{
+      if(!zipEntries||!pnOnlinePrimedAt)await pnPrimeGoogleSheets(true);
+      if(d.sheet&&d.sheet!=='Data Siswa'&&d.sheet!=='Data Pengurus'){
+        await pnRefreshOnlineSheet(d.sheet,d.module,false);
+      }
+    }catch(err){console.warn('Google Sheets module load:',err)}
+  },0);
 });
 
 function pnPending(){
@@ -861,16 +953,38 @@ if(typeof pnOriginalPersistWorkingCopy==='function'){
 }
 
 window.afterMutation=async function(msg){
-  await window.persistWorkingCopy();
-  void pnLogDatabaseHistory(msg);
+  pnCloudStatus('MENYIMPAN KE SHEETS...');
+  pnRenderLastSync('pending');
+  setStatus('☁ <b>Menyimpan langsung ke Google Sheets...</b>','ok');
+
+  let r;
   try{
-    const r=await pnFlushOnlinePatches();
-    setStatus('<b>'+esc(msg)+'</b>. ✓ <b>TERSIMPAN DI GOOGLE SHEETS</b> dan siap dibuka dari perangkat lain'+(r.count?(' ('+r.count+' sel diperbarui).'):'.'),'ok');
-  }catch(err){
-    pnRenderLastSync('error');
-    pnCloudStatus('SHEETS TERTUNDA');
-    setStatus('<b>'+esc(msg)+'</b>. Lokal aman, tetapi Google Sheets belum tersimpan: <b>'+esc(err.message)+'</b>. Akan dicoba lagi otomatis.','err');
+    // SUMBER UTAMA: server harus berhasil dahulu sebelum operasi dinyatakan selesai.
+    r=await pnFlushOnlinePatches();
+  }catch(firstErr){
+    // Retry singkat sekali untuk cold-start Apps Script.
+    await new Promise(resolve=>setTimeout(resolve,350));
+    try{
+      r=await pnFlushOnlinePatches();
+    }catch(err){
+      // Hanya sebagai recovery lokal; tidak pernah dilabeli sebagai "berhasil tersimpan".
+      try{await window.persistWorkingCopy()}catch(_){}
+      pnRenderLastSync('error');
+      pnCloudStatus('SHEETS GAGAL');
+      setStatus('<b>'+esc(msg)+'</b> BELUM tersimpan ke Google Sheets: <b>'+esc(err.message)+'</b>. Data sementara tetap diamankan di browser. Klik SIMPAN lagi setelah koneksi normal.','err');
+      return false;
+    }
   }
+
+  pnSetLastSync(new Date().toISOString());
+  pnRenderLastSync('success');
+  pnCloudStatus('TERSIMPAN DI SHEETS');
+  setStatus('<b>'+esc(msg)+'</b>. ✓ <b>TERSIMPAN LANGSUNG DI GOOGLE SHEETS</b> dan sudah siap dibuka dari perangkat lain'+(r&&r.count?(' ('+r.count+' sel).'):'.'),'ok');
+
+  // Browser/Excel hanya cache/backup setelah Sheets berhasil.
+  Promise.resolve(window.persistWorkingCopy()).catch(err=>console.warn('Cache browser:',err));
+  void pnLogDatabaseHistory(msg);
+  return true;
 };
 
 window.pnSyncGoogleSheetsNow=async function(){
@@ -914,75 +1028,23 @@ window.pnSyncGoogleSheetsNow=async function(){
 
 async function pnMaybeLoadCloud(force=false){
   if(!pnDatabasePanelOpen())return false;
-  if(pnCloudBusy||pnCloudSaveBusy)return false;
-
-  let token=pnDbToken();
-  if(!token&&typeof window.pnEnsureAdminServerSessionV1==='function'){
-    try{token=await window.pnEnsureAdminServerSessionV1()}catch(err){
-      pnCloudStatus('BELUM TERHUBUNG');
-      if(!zipEntries)setStatus('Database lokal belum ada. Login Admin sekali lagi agar master cloud dapat dimuat otomatis.','err');
-      return false;
-    }
+  try{
+    return await pnPrimeGoogleSheets(!!force);
+  }catch(err){
+    pnCloudStatus('BELUM TERHUBUNG');
+    if(typeof setStatus==='function')setStatus('Google Sheets belum dapat dimuat: <b>'+esc(err&&err.message||err)+'</b>','err');
+    return false;
   }
-  if(!token)return false;
-
-  if(!zipEntries){
-    pnCloudStatus('MENYIAPKAN DATA...');
-    setStatus('Menyiapkan mesin data perangkat ini. Setelah siap, seluruh data LIVE dibaca dari Google Sheets...','ok');
-    const loaded=await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
-    if(loaded){
-      setTimeout(async()=>{
-        await pnRefreshOnlineCore(true);
-        if(typeof activeModule!=='undefined'&&typeof modules!=='undefined'&&modules[activeModule]){
-          const m=modules[activeModule];
-          if(m.sheet!=='Data Siswa'&&m.sheet!=='Data Pengurus'){
-            await pnRefreshOnlineSheet(m.sheet,activeModule,true);
-          }
-        }
-      },60);
-    }
-    return loaded;
-  }
-
-  pnCloudStatus('GOOGLE SHEETS ONLINE');
-  return true;
-
-  const pending=pnPending();
-  if(pending==='initial'){
-    if(!pnInitialUploadPromise)void pnInitializeCloudFromCurrent();
-    return true;
-  }
-  if(pending==='update'){
-    pnScheduleCloudSync(false);
-    return true;
-  }
-
-  const now=Date.now();
-  if(!force&&pnCloudLastBackgroundCheck&&now-pnCloudLastBackgroundCheck<PN_DB_BACKGROUND_CHECK_MS)return true;
-  pnCloudLastBackgroundCheck=now;
-
-  if(token===pnCloudLoadedToken&&pnCloudLoaded&&!force)return true;
-  if(token===pnCloudCheckedToken&&!pnCloudLoaded&&!force)return false;
-  pnCloudStatus('LOCAL SIAP • CEK CLOUD');
-  void pnRestoreCloudDatabase({quiet:true});
-  return true;
 }
 
 setTimeout(()=>pnRenderLastSync('idle'),120);
 setTimeout(()=>pnEnsureHistoryUi(),180);
 window.addEventListener('pn:database-panel-open',()=>{
-  setTimeout(async()=>{
-    await pnMaybeLoadCloud(true);
-    if(!zipEntries)return;
-    await pnRefreshOnlineCore(true);
-    if(typeof activeModule!=='undefined'&&typeof modules!=='undefined'&&modules[activeModule]){
-      const m=modules[activeModule];
-      if(m.sheet!=='Data Siswa'&&m.sheet!=='Data Pengurus'){
-        await pnRefreshOnlineSheet(m.sheet,activeModule,true);
-      }
-    }
-    pnCloudStatus('GOOGLE SHEETS ONLINE');
-  },60);
+  setTimeout(()=>{void pnMaybeLoadCloud(true)},0);
+});
+
+window.addEventListener('pn:admin-open',()=>{
+  setTimeout(()=>{void pnPrimeGoogleSheets(true).catch(err=>console.warn('Prime Google Sheets:',err))},0);
 });
 setInterval(()=>{
   if(pnOnlinePatchMap.size)pnFlushOnlinePatches().catch(()=>{});
@@ -991,6 +1053,8 @@ setInterval(()=>{
 window.addEventListener('online',()=>{
   pnCloudCheckedToken='';
   if(pnOnlinePatchMap.size)pnFlushOnlinePatches().catch(()=>{});
-  pnMaybeLoadCloud();
+  if(document.getElementById('adminApp')&&!document.getElementById('adminApp').classList.contains('hidden')){
+    pnPrimeGoogleSheets(false).catch(()=>{});
+  }
 });
 })();
