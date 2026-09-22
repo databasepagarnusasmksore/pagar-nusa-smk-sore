@@ -208,15 +208,30 @@ function pnEnsureHistoryUi(){
   syncNow.textContent='☁ SINKRONKAN CLOUD SEKARANG';
   syncNow.style.cssText='width:100%;margin:8px 0 0;padding:11px 12px;border:0;border-radius:9px;background:#0f766e;color:#fff;font-weight:900;cursor:pointer';
   syncNow.onclick=async()=>{
-    if(!zipEntries){setStatus('Database lokal belum siap.','err');return}
-    if(!pnDbToken()){setStatus('Sesi Admin/cloud belum aktif. Login Admin sekali lagi.','err');return}
     syncNow.disabled=true;
     const old=syncNow.textContent;
-    syncNow.textContent='☁ MENYIMPAN CLOUD...';
     try{
+      let token=pnDbToken();
+      if(!token&&typeof window.pnEnsureAdminServerSessionV1==='function'){
+        token=await window.pnEnsureAdminServerSessionV1();
+      }
+      if(!token)throw new Error('Sesi Admin/cloud belum aktif.');
+
+      if(!zipEntries){
+        syncNow.textContent='☁ MENGAMBIL MASTER CLOUD...';
+        pnCloudStatus('AMBIL CLOUD...');
+        const loaded=await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
+        if(!loaded)throw new Error('Master cloud belum berhasil dimuat.');
+        pnCloudStatus('CLOUD SIAP');
+        return;
+      }
+
+      syncNow.textContent='☁ MENYIMPAN CLOUD...';
       pnCloudGeneration++;
       pnSetPending('update');
       await pnRunQueuedCloudSync();
+    }catch(err){
+      setStatus('Cloud belum dapat disiapkan: <b>'+esc(err.message)+'</b>','err');
     }finally{
       syncNow.disabled=false;
       syncNow.textContent=old;
