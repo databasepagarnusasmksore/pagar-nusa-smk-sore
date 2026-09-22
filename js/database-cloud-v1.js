@@ -6,6 +6,7 @@ const PN_DB_TOKEN_KEY='pnReviewAdminToken';
 const PN_DB_SOURCE='pn-database';
 const PN_DB_PENDING_KEY='pnExcelCloudPendingV2';
 const PN_DB_LAST_SYNC_KEY='pnExcelCloudLastSyncV1';
+const PN_DB_MASTER_ID_KEY='pnExcelCloudMasterFileIdV1';
 const PN_DB_SYNC_DELAY=900;
 const PN_DB_DOWNLOAD_CONCURRENCY=4;
 
@@ -39,6 +40,15 @@ function pnSetPending(value){
 }
 function pnLastSyncStored(){
   try{return localStorage.getItem(PN_DB_LAST_SYNC_KEY)||''}catch(_){return''}
+}
+function pnMasterFileId(){
+  try{return localStorage.getItem(PN_DB_MASTER_ID_KEY)||''}catch(_){return''}
+}
+function pnSetMasterFileId(value){
+  try{
+    if(value)localStorage.setItem(PN_DB_MASTER_ID_KEY,String(value));
+    else localStorage.removeItem(PN_DB_MASTER_ID_KEY);
+  }catch(_){}
 }
 function pnParseWibTime(value){
   const raw=String(value||'').trim();
@@ -261,7 +271,7 @@ async function pnDownloadCloudWorkbook(token,quiet,options={}){
     const legacy=await pnDatabasePost('databaseGet',{token},90000);
     if(!legacy.exists)return {exists:false};
     if(!legacy.base64)throw new Error('Isi database pusat tidak tersedia.');
-    return {exists:true,name:legacy.name,size:legacy.size,updatedAt:legacy.updatedAt,bytes:pnBase64ToArrayBuffer(legacy.base64)};
+    return {exists:true,fileId:legacy.fileId||'',name:legacy.name,size:legacy.size,updatedAt:legacy.updatedAt,bytes:pnBase64ToArrayBuffer(legacy.base64)};
   }
 
   if(!manifest.exists)return {exists:false};
@@ -282,7 +292,7 @@ async function pnDownloadCloudWorkbook(token,quiet,options={}){
   if(!forceDownload&&zipEntries&&serverUpdated&&localUpdated===serverUpdated&&sameName){
     pnCloudStatus('CLOUD TERBARU');
     if(!quiet)setStatus('✓ Database browser sudah sama dengan <b>SERVER CLOUD</b>. Tidak perlu download ulang file Excel.','ok');
-    return {exists:true,reusedLocal:true,name:manifest.name,size,updatedAt:manifest.updatedAt};
+    return {exists:true,reusedLocal:true,fileId:manifest.fileId||'',name:manifest.name,size,updatedAt:manifest.updatedAt};
   }
 
   const chunks=new Array(count);
@@ -320,7 +330,7 @@ async function pnDownloadCloudWorkbook(token,quiet,options={}){
   }
   if(offset!==size)throw new Error('Database cloud tidak lengkap ('+offset+' dari '+size+' byte).');
 
-  return {exists:true,name:manifest.name,size,updatedAt:manifest.updatedAt,bytes:out.buffer};
+  return {exists:true,fileId:manifest.fileId||'',name:manifest.name,size,updatedAt:manifest.updatedAt,bytes:out.buffer};
 }
 
 async function pnRestoreCloudDatabase(options={}){
@@ -345,6 +355,7 @@ async function pnRestoreCloudDatabase(options={}){
       pnSetPending('');
       pnCloudStatus();
       pnSetLastSync(result.updatedAt);
+      pnSetMasterFileId(result.fileId);
       if(!quiet)setStatus('✓ Database yang sudah tersimpan di browser masih <b>VERSI TERBARU</b>. Tidak ada download ulang.','ok');
       return true;
     }
@@ -362,6 +373,7 @@ async function pnRestoreCloudDatabase(options={}){
     pnSetPending('');
     pnCloudStatus();
     pnSetLastSync(result.updatedAt);
+    pnSetMasterFileId(result.fileId);
     setStatus('✓ Database utama dimuat dari <b>SERVER CLOUD</b>. Data yang sama siap digunakan dari perangkat ini.','ok');
     return true;
   }catch(err){
@@ -379,11 +391,13 @@ async function pnSaveCloudWorkbook(out,name,initialOnly){
   const token=pnDbToken();
   if(!token)throw new Error('Sesi database pusat belum aktif. Login admin terlebih dahulu.');
 
+  const expectedFileId=initialOnly?'':pnMasterFileId();
   const result=await pnDatabasePost('databaseSave',{
     token,
     name:name||originalName||'Database_Pagar_Nusa_BROWSER.xlsm',
     base64:pnBytesToBase64(out),
-    initialOnly:initialOnly?'1':'0'
+    initialOnly:initialOnly?'1':'0',
+    expectedFileId
   },120000);
 
   pnCloudLoaded=true;
@@ -391,6 +405,7 @@ async function pnSaveCloudWorkbook(out,name,initialOnly){
   pnCloudLoadedToken=token;
   pnCloudStatus();
   pnSetLastSync(result.updatedAt);
+  pnSetMasterFileId(result.fileId);
   return result;
 }
 
@@ -495,10 +510,20 @@ async function pnRunQueuedCloudSync(){
     }
   }catch(err){
     console.error('Sinkronisasi database cloud gagal:',err);
-    pnSetPending('update');
-    pnCloudStatus('CLOUD TERTUNDA');
-    pnRenderLastSync('error');
-    setStatus('Data sudah aman di perangkat ini. Sinkronisasi cloud akan dicoba lagi otomatis: <b>'+esc(err.message)+'</b>','err');
+    const code=String(err?.data?.code||'');
+    if(code==='MASTER_CHANGED'||code==='MASTER_VERSION_REQUIRED'){
+      pnSetPending('');
+      pnCloudStatus('MASTER BERUBAH');
+      pnRenderLastSync('error');
+      setStatus('<b>Database cloud lebih baru daripada salinan browser ini.</b> Upload dibatalkan agar data lama tidak menimpa data terbaru. Memuat master terbaru dari server...','err');
+      pnSetMasterFileId('');
+      setTimeout(()=>pnRestoreCloudDatabase({quiet:false,forceDownload:true}),250);
+    }else{
+      pnSetPending('update');
+      pnCloudStatus('CLOUD TERTUNDA');
+      pnRenderLastSync('error');
+      setStatus('Data sudah aman di perangkat ini. Sinkronisasi cloud akan dicoba lagi otomatis: <b>'+esc(err.message)+'</b>','err');
+    }
   }finally{
     pnCloudSaveBusy=false;
     if(pnCloudSaveQueued||pnCloudGeneration>generation){
