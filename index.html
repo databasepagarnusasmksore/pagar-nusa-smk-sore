@@ -54,9 +54,378 @@
 .siteDateTime{position:absolute;top:8px;right:12px;z-index:30;min-width:0;padding:0;text-align:right;color:#fff;background:transparent;border:0;border-radius:0;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;pointer-events:none;font-variant-numeric:tabular-nums}
 .siteDateText{font-size:9px;font-weight:800;line-height:1.2;white-space:nowrap;opacity:.92}
 .siteHijriText{margin-top:1px;font-size:9px;font-weight:800;line-height:1.2;white-space:nowrap;color:#dff7e8}
-.siteTimeText{margin-top:2px;font-size:12px;font-weight:900;liReviews-public-refresh-v3.js?v=8"></script>
+.siteTimeText{margin-top:2px;font-size:12px;font-weight:900;line-height:1.15;letter-spacing:.35px;white-space:nowrap}
+@media(max-width:680px){.topBar{padding-top:42px!important}.siteDateTime{top:7px;right:8px;min-width:0;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}.siteDateText{font-size:8px}.siteHijriText{font-size:8px}.siteTimeText{font-size:11px}}
+
+/* NEWS SECTION V32 */
+.newsSection{max-width:1180px;margin:18px auto 20px;padding:0 2px}
+.newsHead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:0 0 10px}
+.newsHead h2{margin:0;color:#14532d;font-size:19px;font-weight:900;letter-spacing:.2px}
+.newsHead p{margin:4px 0 0;color:#64748b;font-size:12px;line-height:1.45}
+.newsLive{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;background:#ecfdf3;border:1px solid #bbf7d0;color:#166534;font-size:10px;font-weight:900;white-space:nowrap}
+.newsLiveDot{width:7px;height:7px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 0 rgba(22,163,74,.45);animation:newsPulse 1.8s infinite}
+@keyframes newsPulse{70%{box-shadow:0 0 0 7px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
+.newsTicker{overflow:hidden;margin-bottom:12px;border-radius:10px;background:#14532d;border:1px solid #166534;box-shadow:0 4px 12px rgba(20,83,45,.12)}
+.newsTickerTrack{display:inline-block;min-width:100%;padding:8px 0;color:#fff;white-space:nowrap;font-size:11px;font-weight:800;animation:newsMove 24s linear infinite}
+@keyframes newsMove{0%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
+.newsGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.newsCard{position:relative;overflow:hidden;background:#fff;border:1px solid #dbe7df;border-radius:13px;padding:15px 15px 14px;box-shadow:0 4px 14px rgba(15,61,36,.07);transition:transform .18s ease,box-shadow .18s ease}
+.newsCard:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(15,61,36,.11)}
+.newsMeta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+.newsDate{color:#64748b;font-size:10px;font-weight:700}
+.newsBadge{display:inline-flex;align-items:center;padding:3px 7px;border-radius:999px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;font-size:9px;font-weight:900;letter-spacing:.4px}
+.newsCard h3{margin:0 0 7px;color:#153f28;font-size:14px;line-height:1.35;font-weight:900}
+.newsCard p{margin:0;color:#475569;font-size:11px;line-height:1.6}
+.newsIcon{width:31px;height:31px;border-radius:9px;display:flex;align-items:center;justify-content:center;margin-bottom:10px;background:#ecfdf3;color:#166534;font-size:16px}
+@media(max-width:800px){.newsGrid{grid-template-columns:1fr}.newsSection{margin:14px 10px 18px}.newsHead{align-items:flex-start}.newsHead h2{font-size:17px}.newsCard{padding:14px}.newsTickerTrack{font-size:10px}}
+@media(prefers-reduced-motion:reduce){.newsLiveDot,.newsTickerTrack{animation:none}.newsCard:hover{transform:none}}
+
+/* NEWS READ MORE V33 */
+.newsCard p{text-align:justify;line-height:1.7}
+.newsReadMore{display:inline-flex;align-items:center;margin-top:12px;color:#166534;text-decoration:none;font-size:12px;font-weight:900;letter-spacing:.2px}
+.newsReadMore:hover{text-decoration:underline}
+
+/* REVIEWS SECTION V41 */
+.reviewSection{max-width:1180px;margin:20px auto 22px;padding:22px;background:linear-gradient(145deg,#0f3d24,#14532d);border:1px solid #1c6a3c;border-radius:16px;box-shadow:0 10px 28px rgba(15,61,36,.16);color:#fff;overflow:hidden}
+.reviewHead{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:18px}
+.reviewHead h2{margin:0;font-size:20px;line-height:1.25;font-weight:1000;letter-spacing:.4px;color:#fff}.reviewHead p{margin:5px 0 0;max-width:720px;font-size:12px;line-height:1.6;color:#dff7e8}
+.reviewOpenBtn{border:1px solid rgba(255,255,255,.24);border-radius:11px;padding:11px 17px;background:#fff;color:#14532d;font-weight:1000;cursor:pointer;white-space:nowrap;box-shadow:0 5px 14px rgba(0,0,0,.14)}.reviewOpenBtn:hover{filter:brightness(.97)}
+.reviewSummary{display:grid;grid-template-columns:220px 1fr;gap:14px;margin-bottom:16px}.reviewScoreCard,.reviewBarsCard{background:rgba(255,255,255,.97);border:1px solid rgba(255,255,255,.7);border-radius:13px;color:#183528}
+.reviewScoreCard{padding:18px;display:flex;align-items:center;gap:15px}.reviewScore{font-size:42px;line-height:1;font-weight:1000;color:#14532d;letter-spacing:-1px}.reviewStars{color:#f4b400;font-size:17px;letter-spacing:2px;white-space:nowrap}.reviewCount{margin-top:5px;color:#64748b;font-size:10px;font-weight:800}.reviewBarsCard{padding:13px 16px}
+.reviewBarRow{display:grid;grid-template-columns:34px 1fr 34px;align-items:center;gap:9px;margin:6px 0;font-size:10px;font-weight:800;color:#475569}.reviewBar{height:7px;background:#e8efe9;border-radius:999px;overflow:hidden}.reviewBarFill{height:100%;background:linear-gradient(90deg,#e6a700,#f4c430);border-radius:999px}
+.reviewList{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.reviewCard{display:flex;flex-direction:column;min-height:180px;padding:16px;background:#fff;border:1px solid #d6e6dc;border-radius:13px;color:#1e293b;box-shadow:0 5px 16px rgba(0,0,0,.09)}
+.reviewCardTop{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-bottom:10px}.reviewCardStars{color:#f4b400;font-size:13px;letter-spacing:1px}.reviewCardDate{color:#94a3b8;font-size:9px;font-weight:700}.reviewCardText{flex:1;margin:0;color:#334155;font-size:11px;line-height:1.7;text-align:justify}.reviewCardFoot{margin-top:14px;padding-top:11px;border-top:1px solid #e7eee9}.reviewCardName{font-size:11px;font-weight:1000;color:#14532d}.reviewVerified{display:block;margin-top:3px;color:#16803f;font-size:9px;font-weight:900}
+.reviewEmpty{grid-column:1/-1;padding:22px;background:rgba(255,255,255,.96);border:1px solid rgba(255,255,255,.8);border-radius:13px;color:#475569;text-align:center;font-size:11px;line-height:1.65}
+.reviewFormWrap{display:none;margin-top:16px;padding:18px;background:#fff;border-radius:13px;color:#1e293b}.reviewFormWrap.open{display:block}.reviewFormTitle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.reviewFormTitle h3{margin:0;color:#14532d;font-size:14px;font-weight:1000}.reviewCloseBtn{border:0;background:#edf5ef;color:#14532d;width:31px;height:31px;border-radius:50%;font-size:18px;font-weight:900;cursor:pointer}
+.reviewFormGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.reviewField.full{grid-column:1/-1}.reviewField label{display:block;margin-bottom:6px;color:#334155;font-size:10px;font-weight:900}.reviewField input,.reviewField select,.reviewField textarea{width:100%;box-sizing:border-box;border:1px solid #cddbd1;border-radius:9px;background:#fff;color:#1e293b;padding:10px 11px;font:inherit;font-size:12px;outline:none}.reviewField textarea{min-height:100px;resize:vertical}.reviewField input:focus,.reviewField select:focus,.reviewField textarea:focus{border-color:#16803f;box-shadow:0 0 0 3px rgba(22,128,63,.10)}
+.reviewStarInput{display:flex;gap:5px}.reviewStarBtn{border:0;background:transparent;color:#cbd5e1;font-size:26px;line-height:1;padding:0 2px;cursor:pointer}.reviewStarBtn.active{color:#f4b400}.reviewFormNote{grid-column:1/-1;margin:0;padding:10px 12px;border-left:3px solid #e6a700;background:#fff9e6;color:#6b5b23;border-radius:0 8px 8px 0;font-size:10px;line-height:1.55}.reviewSubmit{grid-column:1/-1;border:0;border-radius:10px;padding:11px 16px;background:#166534;color:#fff;font-weight:1000;cursor:pointer}.reviewSubmit:hover{filter:brightness(1.05)}.reviewStatus{grid-column:1/-1;display:none;padding:10px 12px;border-radius:9px;background:#ecfdf3;border:1px solid #bbf7d0;color:#166534;font-size:10px;font-weight:800;line-height:1.55}
+@media(max-width:800px){.reviewSection{margin:16px 10px 20px;padding:17px}.reviewHead{align-items:flex-start;flex-direction:column}.reviewOpenBtn{width:100%}.reviewSummary{grid-template-columns:1fr}.reviewList{grid-template-columns:1fr}.reviewFormGrid{grid-template-columns:1fr}.reviewField.full,.reviewFormNote,.reviewSubmit,.reviewStatus{grid-column:1}.reviewHead h2{font-size:18px}}
+
+/* HARD HIDE LEGACY ADMIN SHORTCUT V1 */
+#pnDashboardShortcuts .adminShortcut,
+#pnDashboardShortcuts [data-action="admin"]{display:none!important}
+
+</style>
+
+</head>
+<body>
+<div class="top">
+  <div id="siteDateTime" class="siteDateTime" aria-label="Tanggal dan waktu WIB">
+    <div id="siteDateText" class="siteDateText">Memuat tanggal...</div>
+    <div id="siteHijriText" class="siteHijriText">Memuat tanggal Hijriah...</div>
+    <div id="siteTimeText" class="siteTimeText">--:--:-- WIB</div>
+  </div>
+  <div class="wrap" style="margin:0 auto">
+    <div class="topBar">
+      <div class="topLogos">
+        <span class="logoFrame"><img src="assets/logo-smk-sore-v4.svg?v=17" alt="Logo SMK Sore"></span>
+        <span class="logoFrame"><img src="assets/logo-pagar-nusa-v3.svg?v=17" alt="Logo Pagar Nusa"></span>
+      </div>
+      <div class="topText">
+        <h1>PAGAR NUSA RAYON SMK SORE TULUNGAGUNG</h1>
+        <p>Website resmi Pagar Nusa Rayon SMK SORE Tulungagung hadir sebagai pusat informasi dan dokumentasi digital yang menyajikan profil anggota, data organisasi, kegiatan, prestasi, berita terbaru, galeri, pendaftaran anggota, serta berbagai informasi penting lainnya. Melalui website ini, diharapkan seluruh anggota, alumni, siswa, dan masyarakat dapat mengenal lebih dekat perjalanan, kegiatan, serta perkembangan Pagar Nusa Rayon SMK SORE Tulungagung.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<button id="dbToggle" class="dbToggle hidden" type="button" onclick="toggleDatabasePanel()">⚙ DATABASE</button>
+<div id="dbBackdrop" class="dbBackdrop hidden" onclick="toggleDatabasePanel(false)"></div>
+<aside id="dbDrawer" class="dbDrawer hidden" aria-hidden="true">
+  <div class="dbDrawerHead"><span>DATABASE EXCEL</span><button class="dbClose" type="button" onclick="toggleDatabasePanel(false)" aria-label="Tutup">×</button></div>
+  <div class="dbDrawerBody">
+  <div id="status" class="status">Pilih database <b>Database_Pagar_Nusa_BROWSER.xlsm</b> terlebih dahulu.</div>
+
+  <div class="card"><div class="cardTitle"><span>PILIH / SIMPAN DATABASE</span><span id="saveMode" class="badge">BELUM TERHUBUNG</span></div><div class="cardBody">
+    <div class="picker">
+      <button class="fileBtn" onclick="chooseDatabase()">PILIH DATABASE EXCEL</button>
+      <input id="file" type="file" accept=".xlsm,.xlsx,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" onchange="loadSelectedFile(this.files[0])">
+      <button class="btn down" onclick="downloadFinal()">DOWNLOAD / SIMPAN FILE FINAL</button>
+      <span id="dbName" class="dbName">Belum ada file dipilih</span>
+    </div>
+    <div id="drop" class="drop">Atau tarik file database .xlsm/.xlsx ke area ini.</div>
+    <div class="hint"><b>Chrome/Edge:</b> database terakhir akan <b>diingat otomatis</b> oleh browser. Setelah refresh atau HTML ditutup lalu dibuka lagi, database dan perubahan terakhir akan dimuat kembali tanpa pilih/upload ulang. Jika izin tulis diberikan, Simpan/Ubah/Hapus juga langsung menulis ke file Excel yang sama. Gunakan tombol PILIH DATABASE hanya jika ingin mengganti database.</div>
+  </div></div>
+
+  </div>
+</aside>
+<div id="publicHome" class="publicHome">
+  <div class="welcomeTicker" aria-label="Selamat datang">
+    <div class="welcomeTickerTrack">SELAMAT DATANG DI WEBSITE RESMI PAGAR NUSA RAYON SMK SORE TULUNGAGUNG</div>
+  </div>
+
+  <section class="dashboardHero">
+    <div class="dashboardHeroHead">
+      <div>
+        <h2>TENTANG PAGAR NUSA</h2>
+        <p>Rayon SMK Sore Tulungagung Memuat semangat juang, kekeluargaan, serta komitmen dalam menjaga ajaran Ahlussunnah wal Jamaah dan melestarikan budaya bangsa</p>
+      </div>
+      <div id="dashSource" class="dashSource">Ringkasan dashboard database terakhir</div>
+    </div>
+
+    <div class="exkulInfo">
+      <h3>TENTANG EKSTRAKURIKULER PENCAK SILAT PAGAR NUSA</h3>
+      <p>Ekstrakurikuler Pencak Silat Pagar Nusa Rayon SMK SORE Tulungagung menjadi wadah bagi siswa untuk mengembangkan keterampilan pencak silat sekaligus membentuk kedisiplinan, ketahanan fisik dan mental, serta karakter yang bertanggung jawab. Kegiatan ini menumbuhkan semangat persaudaraan, sportivitas, keberanian, kepedulian, cinta tanah air, dan nilai-nilai Ahlussunnah wal Jamaah, serta ikut menjaga dan melestarikan pencak silat sebagai bagian dari budaya bangsa Indonesia.</p>
+    </div>
+
+    <div class="dashboardKpis">
+      <div class="dashKpi"><div class="label">Total Siswa/Anggota</div><div id="mSiswa" class="value">123</div></div>
+      <div class="dashKpi"><div class="label">Anggota Aktif</div><div id="mAktif" class="value">23</div></div>
+      <div class="dashKpi"><div class="label">Alumni Terdata</div><div id="mAlumni" class="value">38</div></div>
+      <div class="dashKpi"><div class="label">Total Prestasi</div><div id="mPrestasi" class="value">10</div></div>
+      <div class="dashKpi alt"><div class="label">Laki-laki</div><div id="mMale" class="value">112</div></div>
+      <div class="dashKpi alt"><div class="label">Perempuan</div><div id="mFemale" class="value">11</div></div>
+      <div class="dashKpi alt"><div class="label">Total Hadir Tercatat</div><div id="mAttendance" class="value">0</div></div>
+      <div class="dashKpi alt"><div class="label">Total Pengurus</div><div id="mPengurus" class="value">23</div></div>
+      <span id="mKeluar" class="hidden">0</span>
+    </div>
+
+    <div class="dashboardDetails">
+      <div class="dashPanel"><div class="dashPanelTitle">Status Keanggotaan</div><div id="dashStatusMember" class="dashRows"></div></div>
+      <div class="dashPanel"><div class="dashPanelTitle">Tingkat / Sabuk</div><div id="dashBelt" class="dashRows"></div></div>
+      <div class="dashPanel"><div class="dashPanelTitle">Kelas</div><div id="dashClass" class="dashRows"></div></div>
+      <div class="dashPanel"><div class="dashPanelTitle">Status Pengurus</div><div id="dashPengurus" class="dashRows"></div></div>
+      <div class="dashPanel wide"><div class="dashPanelTitle">Aktivitas Alumni</div><div id="dashAlumniActivity" class="dashRows"></div></div>
+      <div class="dashPanel"><div class="dashPanelTitle">Program Alumni</div><div id="dashAlumniProgram" class="dashRows"></div></div>
+      <div class="dashPanel"><div class="dashPanelTitle">Status Kontak Alumni</div><div id="dashAlumniContact" class="dashRows"></div></div>
+    </div>
+  </section>
+  <section id="newsSection" class="newsSection" aria-label="Kabar dan informasi terbaru">
+    <div class="newsHead">
+      <div><h2>KABAR & INFORMASI</h2><p>Pembaruan terbaru Pagar Nusa Rayon SMK Sore Tulungagung.</p></div>
+      <span class="newsLive"><span class="newsLiveDot"></span> TERBARU</span>
+    </div>
+    <div class="newsTicker" aria-label="Headline terbaru"><div class="newsTickerTrack">KABAR TERBARU • Prestasi Tim IPSI SMK SORE Tulungagung di IPSI Tulungagung Cup 2026 • Bapak Feriawan menghadiri Rapat Koordinasi Peraturan Organisasi Pagar Nusa Tulungagung • Latihan rutin Ekstrakurikuler Pagar Nusa setiap satu minggu sekali pukul 12.45–17.00 WIB •</div></div>
+    <div class="newsGrid">
+      <article class="newsCard">
+        <div class="newsIcon" aria-hidden="true">🏆</div>
+        <div class="newsMeta"><span class="newsDate">15 Agustus 2026</span><span class="newsBadge">PRESTASI</span></div>
+        <h3>Selamat dan Sukses Tim IPSI SMK SORE Tulungagung!</h3>
+        <p>Keluarga besar SMK SORE Tulungagung memberikan apresiasi kepada atlet pencak silat Pagar Nusa yang berhasil menorehkan prestasi membanggakan dalam Kejuaraan IPSI Tulungagung Cup 2026.</p>
+        <a class="newsReadMore" href="berita-ipsi-tulungagung-cup-2026.html">BACA SELENGKAPNYA →</a>
+      </article>
+      <article class="newsCard">
+        <div class="newsIcon" aria-hidden="true">🏛️</div>
+        <div class="newsMeta"><span class="newsDate">15 Agustus 2026</span><span class="newsBadge">ORGANISASI</span></div>
+        <h3>Pembina Pagar Nusa Rayon SMK SORE Hadiri Rapat Koordinasi Peraturan Organisasi</h3>
+        <p>Bapak Feriawan, S.Pd., M.T., Gr. menghadiri Rapat Koordinasi Pembahasan Peraturan Organisasi Pengurus Cabang Pagar Nusa Tulungagung di Gedung PCNU Tulungagung sebagai bagian dari penguatan tata kelola dan soliditas organisasi.</p>
+        <a class="newsReadMore" href="berita-rakor-peraturan-organisasi-pagar-nusa-tulungagung.html">BACA SELENGKAPNYA →</a>
+      </article>
+      <article class="newsCard">
+        <div class="newsIcon" aria-hidden="true">🥋</div>
+        <div class="newsMeta"><span class="newsDate">15 Agustus 2026</span><span class="newsBadge">KEGIATAN</span></div>
+        <h3>Latihan Rutin Ekstrakurikuler Pagar Nusa Rayon SMK SORE Tulungagung</h3>
+        <p>Latihan rutin dilaksanakan setiap satu minggu sekali pukul 12.45–17.00 WIB sebagai wadah pembinaan kemampuan pencak silat, kedisiplinan, tanggung jawab, kebersamaan, mental, karakter, dan akhlakul karimah.</p>
+        <a class="newsReadMore" href="berita-latihan-rutin-pagar-nusa-smk-sore.html">BACA SELENGKAPNYA →</a>
+      </article>
+    </div>
+  </section>
+  <section class="galleryCard" id="gallerySection">
+    <div class="galleryHead"><div class="galleryHeadText"><h2>GALERI KEGIATAN</h2><p>Dokumentasi Pagar Nusa Rayon SMK Sore Tulungagung — klik foto untuk memperbesar.</p></div><span class="badge ok">5 FOTO</span></div>
+    <div class="galleryStrip">
+      <button class="galleryItem" type="button" data-gallery-index="0" onclick="openGallery(0)" aria-label="Buka foto dokumentasi 1"><img src="assets/galeri-1.svg" alt="Dokumentasi kegiatan Pagar Nusa 1" loading="lazy"><span class="galleryZoom">⌕</span><span class="galleryOverlay">Dokumentasi Kegiatan • Foto 1</span></button>
+      <button class="galleryItem" type="button" data-gallery-index="1" onclick="openGallery(1)" aria-label="Buka foto dokumentasi 2"><img src="assets/galeri-3.svg" alt="Dokumentasi kegiatan Pagar Nusa 2" loading="lazy"><span class="galleryZoom">⌕</span><span class="galleryOverlay">Dokumentasi Kegiatan • Foto 2</span></button>
+      <button class="galleryItem" type="button" data-gallery-index="2" onclick="openGallery(2)" aria-label="Buka foto dokumentasi 3"><img src="assets/galeri-4.svg" alt="Dokumentasi kegiatan Pagar Nusa 3" loading="lazy"><span class="galleryZoom">⌕</span><span class="galleryOverlay">Dokumentasi Kegiatan • Foto 3</span></button>
+      <button class="galleryItem" type="button" data-gallery-index="3" onclick="openGallery(3)" aria-label="Buka foto dokumentasi 4"><img src="assets/galeri-5.svg" alt="Dokumentasi kegiatan Pagar Nusa 4" loading="lazy"><span class="galleryZoom">⌕</span><span class="galleryOverlay">Dokumentasi Kegiatan • Foto 4</span></button>
+      <button class="galleryItem" type="button" data-gallery-index="4" onclick="openGallery(4)" aria-label="Buka foto dokumentasi 5"><img src="assets/galeri-6-v3.svg" alt="Dokumentasi kegiatan Pagar Nusa 5" loading="lazy"><span class="galleryZoom">⌕</span><span class="galleryOverlay">Dokumentasi Kegiatan • Foto 5</span></button>
+    </div>
+  </section>
+
+  <section id="reviewsSection" class="reviewSection" aria-label="Ulasan dan penilaian Pagar Nusa SMK Sore">
+    <div class="reviewHead">
+      <div><h2>ULASAN & PENILAIAN</h2><p>Penilaian anggota, alumni, dan siswa. Ulasan ditampilkan setelah melalui verifikasi admin.</p></div>
+      <button id="reviewOpenBtn" class="reviewOpenBtn" type="button">★ BERIKAN ULASAN</button>
+    </div>
+    <div class="reviewSummary">
+      <div class="reviewScoreCard"><div id="reviewAvg" class="reviewScore">0.0</div><div><div id="reviewAvgStars" class="reviewStars">☆☆☆☆☆</div><div class="reviewCount"><span id="reviewTotal">0</span> ulasan terverifikasi</div></div></div>
+      <div id="reviewBars" class="reviewBarsCard"></div>
+    </div>
+    <div id="reviewList" class="reviewList"><div class="reviewEmpty">Memuat ulasan terverifikasi...</div></div>
+    <div id="reviewFormWrap" class="reviewFormWrap">
+      <div class="reviewFormTitle"><h3>KIRIM ULASAN</h3><button id="reviewCloseBtn" class="reviewCloseBtn" type="button" aria-label="Tutup form ulasan">×</button></div>
+      <form id="reviewForm" class="reviewFormGrid">
+        <div class="reviewField"><label for="reviewName">Nama</label><input id="reviewName" maxlength="60" required placeholder="Nama lengkap"></div>
+        <div class="reviewField"><label for="reviewRole">Status</label><select id="reviewRole" required><option value="">Pilih status</option><option>Anggota</option><option>Alumni</option><option>Siswa</option><option>Orang Tua/Wali</option></select></div>
+        <div class="reviewField full"><label>Rating</label><div id="reviewStarInput" class="reviewStarInput" aria-label="Pilih rating 1 sampai 5"><button class="reviewStarBtn" type="button" data-rating="1">★</button><button class="reviewStarBtn" type="button" data-rating="2">★</button><button class="reviewStarBtn" type="button" data-rating="3">★</button><button class="reviewStarBtn" type="button" data-rating="4">★</button><button class="reviewStarBtn" type="button" data-rating="5">★</button></div><input id="reviewRating" type="hidden"></div>
+        <div class="reviewField full"><label for="reviewMessage">Ulasan / Komentar</label><textarea id="reviewMessage" maxlength="500" required placeholder="Tulis pengalaman atau penilaian Anda..."></textarea></div>
+        <p class="reviewFormNote">Ulasan tidak langsung tampil di website. Setelah dikirim, pesan diteruskan ke WhatsApp resmi untuk diperiksa admin sebelum dipublikasikan.</p>
+        <button class="reviewSubmit" type="submit">KIRIM ULASAN KE ADMIN</button>
+        <div id="reviewStatus" class="reviewStatus"></div>
+      </form>
+    </div>
+  </section>
+</div>
+
+<div id="adminApp" class="hidden">
+  <div class="adminTopbar">
+    <strong>🔐 AREA ADMIN — INPUT & KELOLA DATABASE</strong>
+    <div class="adminTopActions">
+      <a href="akun-pengurus.html" class="akunPengurusAdminBtn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;background:#0f766e;color:#fff;border:0;border-radius:9px;padding:9px 12px;font-size:10px;font-weight:900;white-space:nowrap">👥 AKUN PENGURUS</a>
+      <a href="materi-pengurus.html" class="materiAdminMenuBtn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;background:#166534;color:#fff;border:0;border-radius:9px;padding:9px 12px;font-size:10px;font-weight:900;white-space:nowrap">📚 MATERI PENGURUS</a>
+      <button class="back" type="button" onclick="showPublicDashboard(true)">← DASHBOARD</button>
+      <button class="logout" type="button" onclick="logoutAdmin()">KELUAR ADMIN</button>
+    </div>
+  </div>
+  <div class="layout">
+    <div class="sidebar card"><div class="cardTitle">MENU INPUT DATA</div><div id="nav" class="nav"></div></div>
+    <main>
+      <div class="card"><div class="cardTitle"><span id="moduleTitle">PILIH MENU</span><span id="rowBadge" class="badge">DATA BARU</span></div><div class="cardBody">
+        <div id="moduleIntro" class="sectionNote">Pilih salah satu menu input di sebelah kiri.</div>
+
+        <div id="personSection" class="hidden">
+          <div class="searchTop"><div><label id="personLabel">Cari anggota</label><input id="personSearch" type="text" placeholder="Ketik nama atau ID..." oninput="searchPeople()"></div><button class="btn clear" onclick="clearPerson()">BERSIHKAN PILIHAN</button></div>
+          <select id="personResults" class="searchList" size="5" onchange="selectPerson()"></select>
+          <div id="personCard" class="personCard hidden"></div>
+        </div>
+
+        <div id="attendanceSection" class="hidden">
+          <div class="attendanceGrid">
+            <div><label>Bulan</label><select id="attMonth" class="yellow" onchange="loadAttendanceCurrent()"></select></div>
+            <div><label>Hadir</label><input id="attH" type="number" min="0" max="31" class="yellow"></div>
+            <div><label>Sakit</label><input id="attS" type="number" min="0" max="31" class="yellow"></div>
+            <div><label>Izin</label><input id="attI" type="number" min="0" max="31" class="yellow"></div>
+            <div><label>Tanpa Keterangan</label><input id="attA" type="number" min="0" max="31" class="yellow"></div>
+            <div><label>DO/Keluar</label><select id="attDO" class="yellow"><option value=""></option><option>DO/Keluar</option></select></div>
+          </div>
+          <div id="attCurrent" class="currentBox" style="margin-top:10px">Pilih anggota dan bulan.</div>
+        </div>
+
+        <div id="formSection"><div id="formGrid" class="formGrid"></div></div>
+
+        <div class="btnbar" style="margin-top:15px">
+          <button class="btn new" onclick="newRecord()">DATA BARU</button>
+          <button class="btn save" onclick="saveRecord()">SIMPAN</button>
+          <button class="btn edit" onclick="updateRecord()">UBAH</button>
+          <button class="btn del" onclick="deleteRecord()">HAPUS</button>
+          <button class="btn view" onclick="lihatData()">LIHAT DATA</button>
+        </div>
+      </div></div>
+
+      <div id="dataResultsCard" class="card"><div class="cardTitle"><span>DATA / HASIL</span><span id="recordCount" class="subtle">0 data</span></div><div class="cardBody">
+        <div class="searchTop"><div><label>Cari pada hasil</label><input id="recordSearch" type="text" placeholder="Ketik nama, ID, kegiatan, periode, dll..." oninput="renderRecords(false)"></div><button class="btn clear" onclick="document.getElementById('recordSearch').value='';renderRecords(false)">RESET</button></div>
+        <div class="tableWrap" style="margin-top:10px"><table class="results"><thead id="resultHead"></thead><tbody id="resultBody"></tbody></table></div>
+      </div></div>
+    </main>
+  </div>
+</div>
+
+<div id="galleryLightbox" class="galleryLightbox" aria-hidden="true" onclick="galleryBackdropClose(event)">
+  <div class="galleryLightboxInner">
+    <button class="galleryClose" type="button" onclick="closeGallery()" aria-label="Tutup galeri">×</button>
+    <button class="galleryPrev" type="button" onclick="event.stopPropagation();stepGallery(-1)" aria-label="Foto sebelumnya">‹</button>
+    <img id="galleryLightboxImg" src="" alt="Foto galeri diperbesar">
+    <button class="galleryNext" type="button" onclick="event.stopPropagation();stepGallery(1)" aria-label="Foto berikutnya">›</button>
+    <div id="galleryCaption" class="galleryCaption"></div>
+  </div>
+</div>
+
+<div id="loginModal" class="loginModal hidden" aria-hidden="true">
+  <form class="loginCard" onsubmit="return submitAdminLogin(event)">
+    <div class="loginCardHead"><h3>LOGIN ADMIN</h3><p>Masuk ke aplikasi untuk mengelola dan memperbarui database.</p></div>
+    <div class="loginCardBody">
+      <label for="adminUser">Username</label>
+      <input id="adminUser" type="text" autocomplete="off" required>
+      <label for="adminPass">Password</label>
+      <input id="adminPass" type="password" autocomplete="current-password" required>
+      <div class="loginButtons">
+        <button class="loginCancel" type="button" onclick="closeAdminLogin()">BATAL</button>
+        <button class="loginSubmit" type="submit">MASUK</button>
+      </div>
+      <div id="loginError" class="loginError"></div>
+      <div class="loginNote">Login ini menjaga akses admin. Database Excel utama disimpan privat melalui server Google Apps Script/Google Drive; setelah upload pertama, perangkat lain cukup login admin untuk memakai database yang sama.</div>
+    </div>
+  </form>
+</div>
+<section id="siteContacts" class="siteContacts" aria-label="Kontak Pagar Nusa SMK Sore Tulungagung">
+  <div class="siteContactsInner">
+    <div class="siteContactLeft">
+      <h3>KONTAK</h3>
+      <a class="siteContactLink" href="https://www.instagram.com/pagarnusa_smksoretulungagung/" target="_blank" rel="noopener noreferrer" aria-label="Instagram pagarnusa_smksoretulungagung">
+        <svg class="siteContactIcon" viewBox="0 0 24 24" aria-hidden="true">
+          <defs><linearGradient id="igFooterGradient" x1="3" y1="21" x2="21" y2="3" gradientUnits="userSpaceOnUse"><stop stop-color="#FEDA75"/><stop offset=".25" stop-color="#FA7E1E"/><stop offset=".5" stop-color="#D62976"/><stop offset=".75" stop-color="#962FBF"/><stop offset="1" stop-color="#4F5BD5"/></linearGradient></defs>
+          <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="url(#igFooterGradient)"/>
+          <rect x="6.1" y="6.1" width="11.8" height="11.8" rx="3.5" fill="none" stroke="#fff" stroke-width="1.8"/>
+          <circle cx="12" cy="12" r="2.9" fill="none" stroke="#fff" stroke-width="1.8"/>
+          <circle cx="16.5" cy="7.6" r="1" fill="#fff"/>
+        </svg>
+        <span>Instagram: @pagarnusa_smksoretulungagung</span>
+      </a>
+      <a class="siteContactLink" href="https://www.tiktok.com/@pagarnusarayonsmksore" target="_blank" rel="noopener noreferrer" aria-label="TikTok pagarnusarayonsmksore">
+        <svg class="siteContactIcon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="11" fill="#090909" stroke="#fff" stroke-opacity=".22"/>
+          <path d="M13.05 5.2c.5 1.7 1.55 2.7 3.3 3.05v2.15c-1.3-.05-2.45-.45-3.3-1.1v4.7a4.25 4.25 0 1 1-3.7-4.22v2.18a2.15 2.15 0 1 0 1.55 2.04V5.2h2.15Z" fill="#25F4EE" transform="translate(-.35,.15)"/>
+          <path d="M13.05 5.2c.5 1.7 1.55 2.7 3.3 3.05v2.15c-1.3-.05-2.45-.45-3.3-1.1v4.7a4.25 4.25 0 1 1-3.7-4.22v2.18a2.15 2.15 0 1 0 1.55 2.04V5.2h2.15Z" fill="#FE2C55" transform="translate(.35,-.12)"/>
+          <path d="M13.05 5.2c.5 1.7 1.55 2.7 3.3 3.05v2.15c-1.3-.05-2.45-.45-3.3-1.1v4.7a4.25 4.25 0 1 1-3.7-4.22v2.18a2.15 2.15 0 1 0 1.55 2.04V5.2h2.15Z" fill="#fff"/>
+        </svg>
+        <span>TikTok: @pagarnusarayonsmksore</span>
+      </a>
+      <a class="siteContactLink" href="mailto:pagarnusasmksore86@gmail.com" aria-label="Email pagarnusasmksore86@gmail.com">
+        <svg class="siteContactIcon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="2" y="4" width="20" height="16" rx="3" fill="#fff" opacity=".15"/>
+          <path d="M4 7.2 12 13l8-5.8M4 18V6h16v12H4Z" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Email: pagarnusasmksore86@gmail.com</span>
+      </a>
+      <a class="siteContactLink" href="https://wa.me/6285736062138" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp 085736062138">
+        <svg class="siteContactIcon" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#25D366" d="M12 2a9.5 9.5 0 0 0-8.23 14.25L2.5 21.5l5.38-1.41A9.5 9.5 0 1 0 12 2Z"/>
+          <path fill="#fff" d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.61-.92-2.21-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.87 1.22 3.07c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.23 1.36.19 1.87.12.57-.08 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.41-.07-.13-.27-.2-.57-.35Z"/>
+        </svg>
+        <span>WhatsApp: 085736062138</span>
+      </a>
+    </div>
+    <div class="siteContactRight">
+      <h3>SEKRETARIAT</h3>
+      <p class="siteContactLocation">
+        <span><strong>SMK SORE Tulungagung</strong><br>Jln. Mastrip No. 100, Kabupaten Tulungagung, Jawa Timur 66235</span>
+      </p>
+    </div>
+  </div>
+</section>
+
+<div class="footer">© 2026 Database <button id="topLoginBtn" type="button" onclick="openAdminLogin()" aria-label="Pagar Nusa Rayon SMK Sore Tulungagung" style="all:unset;color:inherit;font:inherit;letter-spacing:inherit;cursor:default;display:inline">Pagar Nusa Rayon SMK Sore Tulungagung</button></div>
+
+<script src="js/part1.js?v=17"></script>
+<script src="js/part2.js?v=18"></script>
+<script src="js/part3.js?v=17"></script>
+<script src="js/part4.js?v=17"></script>
+<script src="js/part5.js?v=17"></script>
+<script src="js/part6.js?v=17"></script>
+<script src="js/part7.js?v=29"></script>
+<script src="js/database-cloud-v1.js?v=9"></script>
+<script src="js/dashboard-persist-v1.js?v=1"></script>
+<script src="js/ui-v9.js?v=57"></script>
+<script>
+/* LIVE DATETIME WIB V31 */
+(function(){
+  const dateEl=document.getElementById('siteDateText');
+  const hijriEl=document.getElementById('siteHijriText');
+  const timeEl=document.getElementById('siteTimeText');
+  if(!dateEl||!hijriEl||!timeEl) return;
+  const dateFmt=new Intl.DateTimeFormat('id-ID',{weekday:'long',day:'2-digit',month:'long',year:'numeric',timeZone:'Asia/Jakarta'});
+  const hijriFmt=new Intl.DateTimeFormat('id-ID-u-ca-islamic',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Jakarta'});
+  const timeFmt=new Intl.DateTimeFormat('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:'Asia/Jakarta'});
+  function updateSiteDateTime(){
+    const now=new Date();
+    dateEl.textContent=dateFmt.format(now);
+    let hijri=hijriFmt.format(now);
+    hijri=hijri.replace(/ AH$/i,' H').replace(/ M$/i,' H');
+    if(!/H$/i.test(hijri)) hijri += ' H';
+    hijriEl.textContent=hijri;
+    timeEl.textContent=timeFmt.format(now)+' WIB';
+  }
+  updateSiteDateTime();
+  setInterval(updateSiteDateTime,1000);
+})();
+</script>
+
+<script src="js/reviews-moderation-v2.js?v=10"></script>
+<script src="js/reviews-admin-session-v10.js?v=16"></script>
+<script src="js/admin-session-keepalive-v1.js?v=2"></script>
+<script src="js/aspel-input-status-sync-v3.js?v=20260823-1335"></script>
+<script src="js/reviews-public-refresh-v3.js?v=8"></script>
 <script src="js/dashboard-shortcuts-v2.js?v=20260818-1037"></script>
-<script src="js/content-manager-v1.js?v=13"></script>
+<script src="js/content-manager-v1.js?v=12"></script>
 <script src="js/registration-toggle-v1.js?v=2"></script>
 <script src="js/cbt-toggle-v1.js?v=3"></script>
 <script src="js/drive-image-fix-v2.js?v=7"></script>
