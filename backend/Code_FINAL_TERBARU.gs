@@ -129,8 +129,11 @@ function doGet(e) {
       backupRetentionDays:PN_BACKUP_RETENTION_DAYS,
       excelCloud:true,
       excelCloudVersion:'6',
+      primaryDatabase:'google-sheets',
+      primaryDatabaseVersion:'3',
+      primaryDatabaseSpreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
       onlineDatabase:true,
-      onlineDatabaseVersion:'1',
+      onlineDatabaseVersion:'2',
       onlineDatabaseMode:'GOOGLE_SHEETS_PRIMARY',
       excelCloudChunkUpload:true,
       adminNotificationCenter:true,
@@ -409,7 +412,7 @@ function doPost(e) {
       return iframeResult_(result, 'pn-database');
     }
 
-    if (action === 'databaseManifest') {
+  if (action === 'databaseManifest') {
       result = excelDatabaseManifest_(data);
       result.rid = String(data.rid || '');
       contentRememberResult_(data.rid, result);
@@ -2678,38 +2681,85 @@ function onlineDatabaseSheetRead_(data) {
   };
 }
 
+function onlineDatabaseColumnNumber_(letters) {
+  let n = 0;
+  String(letters || '').toUpperCase().split('').forEach(function(ch){
+    n = n * 26 + ch.charCodeAt(0) - 64;
+  });
+  return n;
+}
+
 function onlineDatabaseSheetPatch_(data) {
   const admin = requireReviewAdmin_(data.token);
   let patches = [];
   try { patches = JSON.parse(String(data.patches || '[]')); }
   catch (_) { throw new Error('Data perubahan Google Sheets tidak valid.'); }
+
   if (!Array.isArray(patches) || !patches.length) {
     return {ok:true, count:0, version:onlineDatabaseVersion_(), message:'Tidak ada perubahan untuk disimpan.'};
   }
-  if (patches.length > 250) throw new Error('Terlalu banyak perubahan sekaligus. Maksimal 250 sel.');
+  if (patches.length > 400) throw new Error('Terlalu banyak perubahan sekaligus. Maksimal 400 sel.');
 
   const book = onlineDatabaseBook_();
+  const grouped = {};
+
+  patches.forEach(function(p){
+    const sheetName = onlineDatabaseSheetAllowed_(p.sheet);
+    const addr = String(p.address || '').trim().toUpperCase();
+    const match = addr.match(/^([A-Z]{1,3})([1-9][0-9]{0,5})$/);
+    if (!match) throw new Error('Alamat sel tidak valid: ' + addr);
+
+    const row = Number(match[2]);
+    const col = onlineDatabaseColumnNumber_(match[1]);
+    const key = sheetName + '|' + row;
+    if (!grouped[key]) grouped[key] = {sheetName:sheetName,row:row,items:[]};
+    grouped[key].items.push({
+      col:col,
+      clear:(p.clear === true || String(p.clear || '') === '1'),
+      value:(p.value === null || p.value === undefined) ? '' : p.value
+    });
+  });
+
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   let count = 0;
+  let writeRanges = 0;
+
   try {
-    patches.forEach(function(p){
-      const sheetName = onlineDatabaseSheetAllowed_(p.sheet);
-      const addr = String(p.address || '').trim().toUpperCase();
-      if (!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(addr)) throw new Error('Alamat sel tidak valid: ' + addr);
-      const sheet = book.getSheetByName(sheetName);
-      if (!sheet) throw new Error('Sheet database online tidak ditemukan: ' + sheetName);
-      const range = sheet.getRange(addr);
-      if (p.clear === true || String(p.clear || '') === '1') range.clearContent();
-      else range.setValue(p.value === null || p.value === undefined ? '' : p.value);
-      count++;
+    Object.keys(grouped).forEach(function(key){
+      const group = grouped[key];
+      const sheet = book.getSheetByName(group.sheetName);
+      if (!sheet) throw new Error('Sheet database online tidak ditemukan: ' + group.sheetName);
+
+      group.items.sort(function(a,b){ return a.col-b.col; });
+      const runs = [];
+      let run = [];
+      group.items.forEach(function(item){
+        if (!run.length || item.col === run[run.length-1].col + 1) run.push(item);
+        else { runs.push(run); run=[item]; }
+      });
+      if (run.length) runs.push(run);
+
+      runs.forEach(function(items){
+        const startCol = items[0].col;
+        const range = sheet.getRange(group.row,startCol,1,items.length);
+        const values = range.getValues()[0];
+        items.forEach(function(item,index){
+          values[index] = item.clear ? '' : item.value;
+          count++;
+        });
+        range.setValues([values]);
+        writeRanges++;
+      });
     });
+
     SpreadsheetApp.flush();
     const version = onlineDatabaseBumpVersion_();
-    adminAudit_('ONLINE_DATABASE_PATCH','OK',count + ' sel Google Sheets disimpan oleh ' + admin + '.');
+    adminAudit_('ONLINE_DATABASE_PATCH','OK',count + ' sel Google Sheets disimpan dalam ' + writeRanges + ' range oleh ' + admin + '.');
     return {
       ok:true,
       count:count,
+      ranges:writeRanges,
       version:version,
       spreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
       message:'Perubahan tersimpan langsung ke Google Sheets.'
