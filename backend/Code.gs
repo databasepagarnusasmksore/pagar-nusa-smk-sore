@@ -45,6 +45,22 @@ const PN_EXCEL_BACKUP_PREFIX = 'PN_EXCEL_BACKUP_';
 const PN_EXCEL_BACKUP_KEEP = 5;
 const PN_EXCEL_HISTORY_SHEET_NAME = 'Riwayat Perubahan Database Excel';
 const PN_EXCEL_HISTORY_KEEP = 2000;
+const PN_MAIN_DB_SPREADSHEET_ID = '1aFAHaDmL2m4FwiXhU1trTA-g0pbuhgMtp-WnGVlqwv8';
+const PN_MAIN_DB_REVISION_PROPERTY = 'PN_MAIN_DB_REVISION_V1';
+const PN_MAIN_DB_UPDATED_PROPERTY = 'PN_MAIN_DB_UPDATED_AT_V1';
+const PN_MAIN_DB_SHEETS = {
+  'Referensi': {cols:23, maxRows:500, styleRow:5},
+  'Data Siswa': {cols:20, maxRows:1000, styleRow:6},
+  'Data Pengurus': {cols:11, maxRows:1000, styleRow:6},
+  'Data Alumni': {cols:15, maxRows:1000, styleRow:6},
+  'Kehadiran': {cols:226, maxRows:1000, styleRow:4},
+  'Kenaikan Tingkat': {cols:13, maxRows:1000, styleRow:6},
+  'Prestasi': {cols:10, maxRows:1000, styleRow:5},
+  'Iuran': {cols:12, maxRows:1000, styleRow:5},
+  'Data Pelanggaran': {cols:12, maxRows:1000, styleRow:6},
+  'Data SP 1-3': {cols:17, maxRows:10000, styleRow:6},
+  'Data Keluar': {cols:12, maxRows:1000, styleRow:6}
+};
 const PN_ONLINE_DATABASE_SPREADSHEET_ID = '1fg-zsfYnK6nCJZTOT-xzICkUOMgmMKTPOLWPtvHLOnM';
 const PN_ONLINE_DATABASE_VERSION_PROPERTY = 'PN_ONLINE_DATABASE_VERSION_V1';
 const PN_ONLINE_DATABASE_ALLOWED_SHEETS = [
@@ -129,6 +145,9 @@ function doGet(e) {
       backupRetentionDays:PN_BACKUP_RETENTION_DAYS,
       excelCloud:true,
       excelCloudVersion:'6',
+      primaryDatabase:'google-sheets',
+      primaryDatabaseVersion:'2',
+      primaryDatabaseSpreadsheetId:PN_MAIN_DB_SPREADSHEET_ID,
       onlineDatabase:true,
       onlineDatabaseVersion:'1',
       onlineDatabaseMode:'GOOGLE_SHEETS_PRIMARY',
@@ -409,7 +428,16 @@ function doPost(e) {
       return iframeResult_(result, 'pn-database');
     }
 
-    if (action === 'databaseManifest') {
+    if (action === 'databaseSheetSnapshot') {
+    let result;
+    try { result = databaseSheetSnapshot_(data); }
+    catch (err) { result = {ok:false, message:String(err && err.message || err)}; }
+    result.rid = String(data.rid || '');
+    if (data.callback) return jsonp_(result, data.callback);
+    return json_(result);
+  }
+
+  if (action === 'databaseManifest') {
       result = excelDatabaseManifest_(data);
       result.rid = String(data.rid || '');
       contentRememberResult_(data.rid, result);
@@ -425,6 +453,13 @@ function doPost(e) {
     if (action === 'databaseGet') {
       result = excelDatabaseGet_(data);
       result.rid = String(data.rid || '');
+      return iframeResult_(result, 'pn-database');
+    }
+
+    if (action === 'databaseSheetRowSave') {
+      result = databaseSheetRowSave_(data);
+      result.rid = String(data.rid || '');
+      contentRememberResult_(data.rid, result);
       return iframeResult_(result, 'pn-database');
     }
 
@@ -2713,6 +2748,147 @@ function onlineDatabaseSheetPatch_(data) {
       version:version,
       spreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
       message:'Perubahan tersimpan langsung ke Google Sheets.'
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function databaseSheetConfig_(name) {
+  name = String(name || '').trim();
+  const cfg = PN_MAIN_DB_SHEETS[name];
+  if (!cfg) throw new Error('Sheet database tidak diizinkan: ' + name);
+  return {name:name, cols:Number(cfg.cols), maxRows:Number(cfg.maxRows), styleRow:Number(cfg.styleRow)};
+}
+
+function databaseSheetBook_() {
+  return SpreadsheetApp.openById(PN_MAIN_DB_SPREADSHEET_ID);
+}
+
+function databaseSheetExcelSerial_(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return '';
+  const utc = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds());
+  return (utc - Date.UTC(1899,11,30)) / 86400000;
+}
+
+function databaseSheetJsonValue_(value) {
+  if (value instanceof Date) return databaseSheetExcelSerial_(value);
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  return String(value);
+}
+
+function databaseSheetRevision_() {
+  const props = PropertiesService.getScriptProperties();
+  return {
+    revision:Number(props.getProperty(PN_MAIN_DB_REVISION_PROPERTY) || 1),
+    updatedAt:String(props.getProperty(PN_MAIN_DB_UPDATED_PROPERTY) || '')
+  };
+}
+
+function databaseSheetTouchRevision_() {
+  const props = PropertiesService.getScriptProperties();
+  const next = Number(props.getProperty(PN_MAIN_DB_REVISION_PROPERTY) || 1) + 1;
+  const updatedAt = Utilities.formatDate(new Date(), 'Asia/Jakarta', "yyyy-MM-dd'T'HH:mm:ss");
+  props.setProperty(PN_MAIN_DB_REVISION_PROPERTY, String(next));
+  props.setProperty(PN_MAIN_DB_UPDATED_PROPERTY, updatedAt);
+  return {revision:next, updatedAt:updatedAt};
+}
+
+function databaseSheetSnapshot_(data) {
+  requireReviewAdmin_(data.token);
+  const cfg = databaseSheetConfig_(data.sheet);
+  const book = databaseSheetBook_();
+  const sheet = book.getSheetByName(cfg.name);
+  if (!sheet) throw new Error('Sheet database tidak ditemukan: ' + cfg.name);
+
+  const lastRow = Math.max(1, Math.min(cfg.maxRows, sheet.getLastRow() || 1));
+  const values = sheet.getRange(1,1,lastRow,cfg.cols).getValues().map(function(row){
+    return row.map(databaseSheetJsonValue_);
+  });
+  const rev = databaseSheetRevision_();
+  return {
+    ok:true,
+    source:'google-sheets',
+    spreadsheetId:PN_MAIN_DB_SPREADSHEET_ID,
+    sheet:cfg.name,
+    rows:lastRow,
+    cols:cfg.cols,
+    values:values,
+    revision:rev.revision,
+    updatedAt:rev.updatedAt,
+    version:'1'
+  };
+}
+
+function databaseSheetEnsureLog_(book) {
+  let sheet = book.getSheetByName('Migrasi Log');
+  if (!sheet) {
+    sheet = book.insertSheet('Migrasi Log');
+    sheet.getRange(1,1,1,8).setValues([['Waktu','Sheet','Baris','Aksi','Admin','Sumber','Revision','Keterangan']]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function databaseSheetRowSave_(data) {
+  const admin = requireReviewAdmin_(data.token);
+  const cfg = databaseSheetConfig_(data.sheet);
+  const row = Math.floor(Number(data.row || 0));
+  if (!Number.isFinite(row) || row < 1 || row > cfg.maxRows) throw new Error('Baris database tidak valid.');
+
+  let values = [];
+  let numeric = [];
+  try { values = JSON.parse(String(data.values || '[]')); } catch (_) { throw new Error('Data baris tidak valid.'); }
+  try { numeric = JSON.parse(String(data.numeric || '[]')); } catch (_) { numeric = []; }
+  if (!Array.isArray(values)) throw new Error('Data baris tidak valid.');
+
+  const out = new Array(cfg.cols).fill('');
+  for (let i=0; i<cfg.cols; i++) {
+    let v = i < values.length ? values[i] : '';
+    if (v === null || v === undefined) v = '';
+    const isNumeric = !!numeric[i];
+    if (isNumeric && v !== '') {
+      const n = Number(v);
+      out[i] = Number.isFinite(n) ? n : String(v);
+    } else if (typeof v === 'number' || typeof v === 'boolean') {
+      out[i] = v;
+    } else {
+      out[i] = String(v);
+    }
+  }
+
+  const book = databaseSheetBook_();
+  const sheet = book.getSheetByName(cfg.name);
+  if (!sheet) throw new Error('Sheet database tidak ditemukan: ' + cfg.name);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const target = sheet.getRange(row,1,1,cfg.cols);
+    if (row > sheet.getLastRow() && cfg.styleRow > 0 && cfg.styleRow <= sheet.getMaxRows()) {
+      try { sheet.getRange(cfg.styleRow,1,1,cfg.cols).copyFormatToRange(sheet,1,cfg.cols,row,row); } catch (_) {}
+    }
+    target.setValues([out]);
+
+    const rev = databaseSheetTouchRevision_();
+    try {
+      databaseSheetEnsureLog_(book).appendRow([
+        new Date(), cfg.name, row, String(data.mode || 'SAVE'), String(admin || 'admin'),
+        'pagarnusasmksore.com', rev.revision, String(data.note || '')
+      ]);
+    } catch (_) {}
+
+    return {
+      ok:true,
+      source:'google-sheets',
+      spreadsheetId:PN_MAIN_DB_SPREADSHEET_ID,
+      sheet:cfg.name,
+      row:row,
+      revision:rev.revision,
+      updatedAt:rev.updatedAt,
+      message:'Data tersimpan langsung ke Google Sheets / Drive.',
+      version:'1'
     };
   } finally {
     lock.releaseLock();
