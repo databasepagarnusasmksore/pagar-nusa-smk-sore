@@ -7,20 +7,30 @@ async function downloadFinal(){if(!zipEntries){alert('Pilih database terlebih da
 
 $('drop').addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy'});$('drop').addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)loadSelectedFile(f)});window.addEventListener('beforeunload',e=>{if(dirty&&!autosaveMode){e.preventDefault();e.returnValue=''}});
 let pnLastDatabaseRestoreStarted=false;
+let pnLastDatabaseRestorePromise=null;
 function pnStartLastDatabaseRestore(){
-  if(pnLastDatabaseRestoreStarted||zipEntries)return;
+  if(zipEntries)return Promise.resolve(true);
+  if(pnLastDatabaseRestorePromise)return pnLastDatabaseRestorePromise;
   pnLastDatabaseRestoreStarted=true;
-  let hasCloudToken=false;
-  try{hasCloudToken=!!(localStorage.getItem('pnReviewAdminToken')||sessionStorage.getItem('pnReviewAdminToken'))}catch(_){}
-  const run=()=>{
-    if(zipEntries)return;
-    Promise.resolve(restoreLastDatabase()).catch(err=>console.warn('Pemulihan database lokal ditunda:',err));
-  };
-  if(hasCloudToken){setTimeout(run,8000);return}
-  if('requestIdleCallback' in window)requestIdleCallback(run,{timeout:700});
-  else setTimeout(run,80);
+  pnLastDatabaseRestorePromise=Promise.resolve()
+    .then(()=>restoreLastDatabase())
+    .catch(err=>{console.warn('Pemulihan database lokal gagal:',err);return false});
+  return pnLastDatabaseRestorePromise;
 }
-function toggleDatabasePanel(force){const drawer=document.getElementById('dbDrawer'),backdrop=document.getElementById('dbBackdrop');if(!drawer||!backdrop)return;const open=typeof force==='boolean'?force:!drawer.classList.contains('open');drawer.classList.toggle('open',open);backdrop.classList.toggle('open',open);drawer.setAttribute('aria-hidden',open?'false':'true');if(open){window.dispatchEvent(new CustomEvent('pn:database-panel-open'));pnStartLastDatabaseRestore()}}
+function toggleDatabasePanel(force){
+  const drawer=document.getElementById('dbDrawer'),backdrop=document.getElementById('dbBackdrop');
+  if(!drawer||!backdrop)return;
+  const open=typeof force==='boolean'?force:!drawer.classList.contains('open');
+  drawer.classList.toggle('open',open);
+  backdrop.classList.toggle('open',open);
+  drawer.setAttribute('aria-hidden',open?'false':'true');
+  if(open){
+    // LOCAL-FIRST: tampilkan cache browser dahulu. Setelah siap baru cek cloud.
+    Promise.resolve(pnStartLastDatabaseRestore()).finally(()=>{
+      window.dispatchEvent(new CustomEvent('pn:database-panel-open'));
+    });
+  }
+}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')toggleDatabasePanel(false)});
 
 const galleryImages=['assets/galeri-6.svg.jpeg?v=21','assets/galeri-3.svg.jpeg?v=21','assets/galeri-4.svg.jpeg?v=21','assets/galeri-1.svg.jpeg?v=21','assets/galeri-2.svg.jpeg?v=21'];
