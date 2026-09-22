@@ -88,8 +88,9 @@ function doGet(e) {
       service:'Pagar Nusa Registration & Student Biodata API',
       storage:'Google Sheets',
       biodata:true,
-      biodataVersion:'13',
+      biodataVersion:'14',
       biodataEmailLogin:true,
+      biodataAspelAsync:true,
       reviews:true,
       reviewVersion:'7',
       content:true,
@@ -402,6 +403,13 @@ function doPost(e) {
       return iframeResult_(result, 'pn-biodata');
     }
 
+    if (action === 'biodataAspel') {
+      result = getStudentAspelSupervision_(data);
+      result.rid = String(data.rid || '');
+      contentRememberResult_(data.rid, result);
+      return iframeResult_(result, 'pn-biodata');
+    }
+
     if (action === 'biodataUpdate') {
       result = updateStudentBiodata_(data);
       result.rid = String(data.rid || '');
@@ -603,7 +611,7 @@ function doPost(e) {
       if (['databaseManifest','databaseSave','databaseHistoryAdd'].includes(action)) contentRememberResult_(data.rid, result);
       return iframeResult_(result, 'pn-database');
     }
-    if (action === 'biodataGet' || action === 'biodataUpdate') {
+    if (action === 'biodataGet' || action === 'biodataAspel' || action === 'biodataUpdate') {
       contentRememberResult_(data.rid, result);
       return iframeResult_(result, 'pn-biodata');
     }
@@ -679,6 +687,34 @@ function getStudentBiodata_(data) {
     },
     responseMs:Date.now()-startedAt,
     version:'13'
+  };
+}
+
+
+function getStudentAspelSupervision_(data) {
+  const startedAt = Date.now();
+  const auth = authorizePortalStudent_(data);
+  const found = findBiodataRow_(auth.book, auth.memberId);
+  const biodata = biodataObject_(found.values);
+  const aspel = getAspelSupervision_(
+    auth.book,
+    auth.memberId,
+    [biodata.name, auth.username]
+  );
+
+  return {
+    ok:true,
+    message:aspel && aspel.total
+      ? 'Data Koordinator ASPEL berhasil dimuat.'
+      : 'Belum ada data Koordinator/Anggota Koordinator yang terhubung.',
+    aspel:aspel,
+    account:{
+      username:auth.username,
+      memberId:auth.memberId,
+      email:auth.email
+    },
+    responseMs:Date.now()-startedAt,
+    version:'14'
   };
 }
 
