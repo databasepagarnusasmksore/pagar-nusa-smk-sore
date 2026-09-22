@@ -132,19 +132,19 @@
 <button id="dbToggle" class="dbToggle hidden" type="button" onclick="toggleDatabasePanel()">⚙ DATABASE</button>
 <div id="dbBackdrop" class="dbBackdrop hidden" onclick="toggleDatabasePanel(false)"></div>
 <aside id="dbDrawer" class="dbDrawer hidden" aria-hidden="true">
-  <div class="dbDrawerHead"><span>DATABASE EXCEL</span><button class="dbClose" type="button" onclick="toggleDatabasePanel(false)" aria-label="Tutup">×</button></div>
+  <div class="dbDrawerHead"><span>DATABASE ONLINE</span><button class="dbClose" type="button" onclick="toggleDatabasePanel(false)" aria-label="Tutup">×</button></div>
   <div class="dbDrawerBody">
-  <div id="status" class="status">Pilih database <b>Database_Pagar_Nusa_BROWSER.xlsm</b> terlebih dahulu.</div>
+  <div id="status" class="status">Database utama menggunakan <b>Google Sheets / Drive</b>. Excel hanya template lokal dan backup.</div>
 
-  <div class="card"><div class="cardTitle"><span>PILIH / SIMPAN DATABASE</span><span id="saveMode" class="badge">BELUM TERHUBUNG</span></div><div class="cardBody">
+  <div class="card"><div class="cardTitle"><span>GOOGLE SHEETS + BACKUP EXCEL</span><span id="saveMode" class="badge ok">GOOGLE SHEETS</span></div><div class="cardBody">
     <div class="picker">
-      <button class="fileBtn" onclick="chooseDatabase()">PILIH DATABASE EXCEL</button>
+      <button class="fileBtn" onclick="chooseDatabase()">PILIH TEMPLATE EXCEL</button>
       <input id="file" type="file" accept=".xlsm,.xlsx,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" onchange="loadSelectedFile(this.files[0])">
-      <button class="btn down" onclick="downloadFinal()">DOWNLOAD / SIMPAN FILE FINAL</button>
+      <button class="btn down" onclick="downloadFinal()">DOWNLOAD BACKUP XLSM</button>
       <span id="dbName" class="dbName">Belum ada file dipilih</span>
     </div>
-    <div id="drop" class="drop">Atau tarik file database .xlsm/.xlsx ke area ini.</div>
-    <div class="hint"><b>Chrome/Edge:</b> database terakhir akan <b>diingat otomatis</b> oleh browser. Setelah refresh atau HTML ditutup lalu dibuka lagi, database dan perubahan terakhir akan dimuat kembali tanpa pilih/upload ulang. Jika izin tulis diberikan, Simpan/Ubah/Hapus juga langsung menulis ke file Excel yang sama. Gunakan tombol PILIH DATABASE hanya jika ingin mengganti database.</div>
+    <div id="drop" class="drop">Opsional: tarik template .xlsm/.xlsx jika perangkat ini belum memiliki template lokal.</div>
+    <div class="hint"><b>Database utama: Google Sheets.</b> Setiap SIMPAN / UBAH / HAPUS dikirim langsung ke Drive dan dapat dibaca dari perangkat lain. File Excel hanya dipakai sebagai template tampilan lokal serta backup manual; tidak diunggah ulang pada setiap perubahan.</div>
   </div></div>
 
   </div>
@@ -392,7 +392,7 @@
 <script src="js/part5.js?v=17"></script>
 <script src="js/part6.js?v=18"></script>
 <script src="js/part7.js?v=30"></script>
-<script src="js/database-cloud-v1.js?v=16"></script>
+<script src="js/database-cloud-v1.js?v=17"></script>
 <script src="js/dashboard-persist-v1.js?v=1"></script>
 <script src="js/ui-v9.js?v=62"></script>
 <script src="js/admin-session-bridge-v1.js?v=1"></script>
