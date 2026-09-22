@@ -79,7 +79,7 @@ if 'admin-account-portal-v1.js' not in compact:
 (()=>{
   if(document.querySelector('script[data-pn-account-admin]'))return;
   const script=document.createElement('script');
-  script.src='js/admin-account-portal-v1.js?v=1';
+  script.src='js/admin-account-portal-v1.js?v=2';
   script.async=false;
   script.dataset.pnAccountAdmin='1';
   document.head.appendChild(script);
