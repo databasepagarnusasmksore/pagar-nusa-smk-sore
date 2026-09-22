@@ -736,11 +736,10 @@ function updateStudentBiodata_(data) {
 }
 
 function authorizePortalStudent_(data) {
-  const username = String(data.username || '').trim();
-  const memberId = String(data.memberId || '').trim();
+  const requestedMemberId = String(data.memberId || '').trim().toLowerCase();
   const idToken = String(data.idToken || '').trim();
-  if (!username || !memberId || !idToken) {
-    throw new Error('Username, ID Anggota, dan sesi login wajib tersedia.');
+  if (!idToken) {
+    throw new Error('Sesi login wajib tersedia.');
   }
 
   const firebaseUser = verifyFirebaseToken_(idToken);
@@ -753,32 +752,40 @@ function authorizePortalStudent_(data) {
   if (!accountSheet) throw new Error('Sheet Akun Portal Siswa tidak ditemukan.');
 
   const last = accountSheet.getLastRow();
-  if (last < 2) {
-    throw new Error('Akun Portal Siswa belum dihubungkan oleh admin.');
-  }
+  if (last < 2) throw new Error('Akun Portal Siswa belum dihubungkan oleh admin.');
 
   const rows = accountSheet.getRange(2,1,last-1,5).getDisplayValues();
-  const u = username.toLowerCase();
-  const id = memberId.toLowerCase();
   let rowIndex = -1;
+  let username = '';
+  let memberId = '';
+  let uidConflict = false;
 
   for (let i = 0; i < rows.length; i++) {
-    const rowUsername = String(rows[i][0] || '').trim().toLowerCase();
-    const rowId = String(rows[i][1] || '').trim().toLowerCase();
+    const rowUsername = String(rows[i][0] || '').trim();
+    const rowIdRaw = String(rows[i][1] || '').trim();
+    const rowId = rowIdRaw.toLowerCase();
     const rowEmail = String(rows[i][2] || '').trim().toLowerCase();
     const rowUid = String(rows[i][3] || '').trim();
     const status = String(rows[i][4] || 'AKTIF').trim().toUpperCase();
 
-    if (rowUsername === u && rowId === id && rowEmail === email) {
-      if (status && status !== 'AKTIF') throw new Error('Akun portal ini sedang nonaktif.');
-      if (rowUid && rowUid !== uid) throw new Error('ID Anggota sudah terhubung dengan akun lain.');
-      rowIndex = i + 2;
-      break;
+    if (rowEmail !== email) continue;
+    if (requestedMemberId && rowId !== requestedMemberId) continue;
+    if (rowUid && rowUid !== uid) { uidConflict = true; continue; }
+
+    if (rowIndex >= 0) {
+      throw new Error('Email terhubung ke lebih dari satu akun. Hubungi admin untuk merapikan database akun.');
     }
+    if (status && status !== 'AKTIF') throw new Error('Akun portal ini sedang nonaktif.');
+    if (!rowIdRaw) throw new Error('ID Anggota akun ini belum dihubungkan oleh admin.');
+
+    rowIndex = i + 2;
+    username = rowUsername;
+    memberId = rowIdRaw;
   }
 
   if (rowIndex < 0) {
-    throw new Error('Username / ID Anggota tidak cocok dengan akun yang terdaftar. Hubungi admin.');
+    if (uidConflict) throw new Error('Email ini sudah terhubung dengan pengguna lain. Hubungi admin.');
+    throw new Error('Email tidak ditemukan pada akun Portal Biodata yang aktif. Hubungi admin.');
   }
 
   const currentUid = String(accountSheet.getRange(rowIndex,4).getDisplayValue() || '').trim();
