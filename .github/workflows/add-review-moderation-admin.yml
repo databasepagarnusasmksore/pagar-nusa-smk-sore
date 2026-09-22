@@ -1,11 +1,6 @@
 name: Add review moderation admin
 
 on:
-  push:
-    paths:
-      - '.github/workflows/add-review-moderation-admin.yml'
-      - 'tools/install_review_moderation_admin.py'
-      - 'js/reviews-moderation-v2.js'
   workflow_dispatch:
 
 permissions:

@@ -4,8 +4,8 @@ INDEX = Path('index.html')
 CODE = Path('backend/Code.gs')
 
 index = INDEX.read_text(encoding='utf-8')
-script_tag = '<script src="js/reviews-moderation-v2.js?v=2"></script>'
-if script_tag not in index:
+script_tag = '<script src="js/reviews-moderation-v2.js?v=11"></script>'
+if 'js/reviews-moderation-v2.js' not in index:
     if '</body>' not in index:
         raise SystemExit('index.html: </body> tidak ditemukan')
     index = index.replace('</body>', script_tag + '\n</body>', 1)
