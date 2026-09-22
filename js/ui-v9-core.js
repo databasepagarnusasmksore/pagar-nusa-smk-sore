@@ -119,6 +119,8 @@ async function submitAdminLogin(ev){
 
     localStorage.setItem('pnAdminAuth','1');
     sessionStorage.setItem('pnAdminAuth','1');
+    window.__pnAdminEphemeralCredentials={username:u,password:p,createdAt:Date.now()};
+    try{window.dispatchEvent(new CustomEvent('pn:admin-credentials-ready'))}catch(_){}
 
     const passEl=document.getElementById('adminPass');
     if(passEl)passEl.value='';
@@ -160,7 +162,7 @@ function showPublicDashboard(force=false){
   if(footerAdminBtn){footerAdminBtn.classList.remove('hidden');footerAdminBtn.removeAttribute('aria-disabled')}
   toggleDatabasePanel(false);setAdminControls(false);refreshPublicDashboardV9();window.scrollTo({top:0,behavior:'smooth'});return true
 }
-function logoutAdmin(){const token=localStorage.getItem('pnReviewAdminToken')||sessionStorage.getItem('pnReviewAdminToken')||'';try{if(token&&typeof window.pnRevokeAdminSession==='function')window.pnRevokeAdminSession(token)}catch(_){};['pnAdminAuth','pnReviewAdminToken'].forEach(k=>{try{localStorage.removeItem(k)}catch(_){};try{sessionStorage.removeItem(k)}catch(_){}});showPublicDashboard(true)}
+function logoutAdmin(){const token=localStorage.getItem('pnReviewAdminToken')||sessionStorage.getItem('pnReviewAdminToken')||'';try{if(token&&typeof window.pnRevokeAdminSession==='function')window.pnRevokeAdminSession(token)}catch(_){};try{if(typeof window.pnClearAdminSessionBridgeV1==='function')window.pnClearAdminSessionBridgeV1();else delete window.__pnAdminEphemeralCredentials}catch(_){};['pnAdminAuth','pnReviewAdminToken'].forEach(k=>{try{localStorage.removeItem(k)}catch(_){};try{sessionStorage.removeItem(k)}catch(_){}});showPublicDashboard(true)}
 document.addEventListener('DOMContentLoaded',()=>{
   renderDashboardData(DASH_SNAPSHOT,false);
   setAdminControls(false);
