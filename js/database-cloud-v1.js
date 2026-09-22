@@ -696,32 +696,45 @@ window.afterMutation=async function(msg){
   setStatus('<b>'+esc(msg)+'</b>. Tersimpan di browser'+(p&&p.cloudWarning?', tetapi cloud belum aktif: '+esc(p.cloudWarning):'.'),'ok');
 };
 
-function pnMaybeLoadCloud(force=false){
-  if(!pnDatabasePanelOpen())return;
-  const token=pnDbToken();
-  if(!token||pnCloudBusy||pnCloudSaveBusy)return;
+async function pnMaybeLoadCloud(force=false){
+  if(!pnDatabasePanelOpen())return false;
+  if(pnCloudBusy||pnCloudSaveBusy)return false;
+
+  let token=pnDbToken();
+  if(!token&&typeof window.pnEnsureAdminServerSessionV1==='function'){
+    try{token=await window.pnEnsureAdminServerSessionV1()}catch(err){
+      pnCloudStatus('BELUM TERHUBUNG');
+      if(!zipEntries)setStatus('Database lokal belum ada. Login Admin sekali lagi agar master cloud dapat dimuat otomatis.','err');
+      return false;
+    }
+  }
+  if(!token)return false;
+
+  if(!zipEntries){
+    pnCloudStatus('AMBIL CLOUD...');
+    setStatus('☁ Perangkat ini belum memiliki database lokal. Mengambil master terbaru dari cloud...','ok');
+    return await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
+  }
 
   const pending=pnPending();
   if(pending==='initial'){
-    if(zipEntries&&!pnInitialUploadPromise)void pnInitializeCloudFromCurrent();
-    return;
+    if(!pnInitialUploadPromise)void pnInitializeCloudFromCurrent();
+    return true;
   }
   if(pending==='update'){
-    if(zipEntries)pnScheduleCloudSync(false);
-    return;
+    pnScheduleCloudSync(false);
+    return true;
   }
 
-  // Database lokal harus sudah siap sebelum cek cloud.
-  if(!zipEntries)return;
-
   const now=Date.now();
-  if(!force&&pnCloudLastBackgroundCheck&&now-pnCloudLastBackgroundCheck<PN_DB_BACKGROUND_CHECK_MS)return;
+  if(!force&&pnCloudLastBackgroundCheck&&now-pnCloudLastBackgroundCheck<PN_DB_BACKGROUND_CHECK_MS)return true;
   pnCloudLastBackgroundCheck=now;
 
-  if(token===pnCloudLoadedToken&&pnCloudLoaded)return;
-  if(token===pnCloudCheckedToken&&!pnCloudLoaded&&!force)return;
+  if(token===pnCloudLoadedToken&&pnCloudLoaded&&!force)return true;
+  if(token===pnCloudCheckedToken&&!pnCloudLoaded&&!force)return false;
   pnCloudStatus('LOCAL SIAP • CEK CLOUD');
   void pnRestoreCloudDatabase({quiet:true});
+  return true;
 }
 
 setTimeout(()=>pnRenderLastSync('idle'),120);
