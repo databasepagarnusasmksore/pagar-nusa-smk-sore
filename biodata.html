@@ -56,8 +56,8 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase
 import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged,setPersistence,browserSessionPersistence} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
 
 const FIREBASE_CONFIG={apiKey:'AIzaSyCMWsvVJPem3_5Y-x8Zrjz90LodbNLkxUs',authDomain:'pagar-nusa-smk-sore.firebaseapp.com',projectId:'pagar-nusa-smk-sore',storageBucket:'pagar-nusa-smk-sore.firebasestorage.app',messagingSenderId:'886023358297',appId:'1:886023358297:web:a993b09785130aebd1ae48',measurementId:'G-VDK3CY3ZT0'};
-// Diisi setelah Web App Apps Script BIODATA baru selesai di-deploy.
-const PN_BIODATA_ENDPOINT='https://script.google.com/macros/s/AKfycbx3P5NWvwalSxrruToRtRSLMRZ-sJVLlGUxdSyT7oGjgJ0C2xKapa6zy72xQnfN0lqqfQ/exec';
+// Menggunakan Web App utama yang sama dengan Database/Admin agar pemeliharaan cukup satu Code.gs.
+const PN_BIODATA_ENDPOINT='https://script.google.com/macros/s/AKfycbyJi_83lJ11JshOLCzIBRMX6fEi-y9UGR9eYULuqH1BivdxeqcgMB0l2ehWBIgaad8Oyw/exec';
 const PROGRAMS=['DPIB','TITL','TPM','TKR','TP','TSM','TEI','TKJ'];
 const $=id=>document.getElementById(id);
 const lockedKeys=new Set(['memberId','approvalYear','entryYear','belt','membershipStatus','studentStatus','certificateNumber','approvalDate','aspelCoordinator','aspelMember1','aspelMember2']);
@@ -121,7 +121,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
 setInterval(pnRefreshPortalLive,20000);
 function loginErrorText(e){const c=String(e?.code||'');if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))return'Email atau password tidak benar.';if(c.includes('too-many-requests'))return'Terlalu banyak percobaan login. Coba beberapa saat lagi.';return e?.message||'Login gagal.'}
 buildFields();
-if(endpointReady()){$('setupNotice').textContent='Portal Biodata aktif · UKT 1–5 + ASPEL · versi 11. Login cukup menggunakan email dan password.';$('setupNotice').classList.add('ok');$('loginBtn').disabled=false}else{$('setupNotice').innerHTML='<b>Portal Biodata sudah dipisahkan dari CBT.</b><br>Menunggu URL Web App Apps Script biodata baru dipasang oleh admin.'}
+if(endpointReady()){$('setupNotice').textContent='Portal Biodata aktif · UKT 1–5 + ASPEL · versi 12. Login cukup menggunakan email dan password.';$('setupNotice').classList.add('ok');$('loginBtn').disabled=false}else{$('setupNotice').innerHTML='<b>Portal Biodata sudah dipisahkan dari CBT.</b><br>Menunggu URL Web App Apps Script biodata baru dipasang oleh admin.'}
 const app=initializeApp(FIREBASE_CONFIG);auth=getAuth(app);setPersistence(auth,browserSessionPersistence).catch(()=>{});
 const passwordInput=$('password');
 function pnClearLoginPassword(){
