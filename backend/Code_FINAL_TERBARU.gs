@@ -45,6 +45,12 @@ const PN_EXCEL_BACKUP_PREFIX = 'PN_EXCEL_BACKUP_';
 const PN_EXCEL_BACKUP_KEEP = 5;
 const PN_EXCEL_HISTORY_SHEET_NAME = 'Riwayat Perubahan Database Excel';
 const PN_EXCEL_HISTORY_KEEP = 2000;
+const PN_ONLINE_DATABASE_SPREADSHEET_ID = '1fg-zsfYnK6nCJZTOT-xzICkUOMgmMKTPOLWPtvHLOnM';
+const PN_ONLINE_DATABASE_VERSION_PROPERTY = 'PN_ONLINE_DATABASE_VERSION_V1';
+const PN_ONLINE_DATABASE_ALLOWED_SHEETS = [
+  'Data Siswa','Data Pengurus','Data Alumni','Kehadiran','Kenaikan Tingkat',
+  'Prestasi','Iuran','Data Pelanggaran','Data SP 1-3','Data Keluar'
+];
 const PN_EXCEL_UPLOAD_PREFIX = 'PN_EXCEL_UPLOAD_V1_';
 const PN_EXCEL_UPLOAD_META_PREFIX = 'PN_EXCEL_UPLOAD_META_V1_';
 const PN_EXCEL_UPLOAD_TTL_MS = 15 * 60 * 1000;
@@ -123,6 +129,9 @@ function doGet(e) {
       backupRetentionDays:PN_BACKUP_RETENTION_DAYS,
       excelCloud:true,
       excelCloudVersion:'6',
+      onlineDatabase:true,
+      onlineDatabaseVersion:'1',
+      onlineDatabaseMode:'GOOGLE_SHEETS_PRIMARY',
       excelCloudChunkUpload:true,
       adminNotificationCenter:true,
       adminNotificationCenterVersion:'1',
@@ -221,6 +230,24 @@ function doGet(e) {
     } catch (err) {
       result = {ok:false, attentionCount:0, items:[], stats:{}, message:String(err && err.message || err)};
     }
+    result.rid = String(data.rid || '');
+    if (data.callback) return jsonp_(result, data.callback);
+    return json_(result);
+  }
+
+  if (action === 'databaseSheetRead') {
+    let result;
+    try { result = onlineDatabaseSheetRead_(data); }
+    catch (err) { result = {ok:false, values:[], message:String(err && err.message || err)}; }
+    result.rid = String(data.rid || '');
+    if (data.callback) return jsonp_(result, data.callback);
+    return json_(result);
+  }
+
+  if (action === 'databaseOnlineStatus') {
+    let result;
+    try { result = onlineDatabaseStatus_(data); }
+    catch (err) { result = {ok:false, message:String(err && err.message || err)}; }
     result.rid = String(data.rid || '');
     if (data.callback) return jsonp_(result, data.callback);
     return json_(result);
@@ -366,6 +393,13 @@ function doPost(e) {
   try {
     if (action === 'register') {
       return json_(saveRegistration_(data));
+    }
+
+    if (action === 'databaseSheetPatch') {
+      result = onlineDatabaseSheetPatch_(data);
+      result.rid = String(data.rid || '');
+      contentRememberResult_(data.rid, result);
+      return iframeResult_(result, 'pn-database');
     }
 
     if (action === 'databaseHistoryAdd') {
@@ -640,8 +674,8 @@ function doPost(e) {
       rid:String(data.rid || ''),
       message:String(err && err.message || err)
     };
-    if (['databaseManifest','databaseChunk','databaseGet','databaseSave','databaseHistoryAdd','databaseUploadBegin','databaseUploadChunk','databaseUploadCommit','databaseUploadAbort'].includes(action)) {
-      if (['databaseManifest','databaseSave','databaseHistoryAdd','databaseUploadBegin','databaseUploadChunk','databaseUploadCommit','databaseUploadAbort'].includes(action)) contentRememberResult_(data.rid, result);
+    if (['databaseManifest','databaseChunk','databaseGet','databaseSave','databaseHistoryAdd','databaseUploadBegin','databaseUploadChunk','databaseUploadCommit','databaseUploadAbort','databaseSheetPatch'].includes(action)) {
+      if (['databaseManifest','databaseSave','databaseHistoryAdd','databaseUploadBegin','databaseUploadChunk','databaseUploadCommit','databaseUploadAbort','databaseSheetPatch'].includes(action)) contentRememberResult_(data.rid, result);
       return iframeResult_(result, 'pn-database');
     }
     if (action === 'biodataGet' || action === 'biodataAspel' || action === 'biodataUpdate') {
@@ -2580,6 +2614,111 @@ function excelDatabaseHistoryList_(data) {
 }
 
 /* ===== EXCEL CLOUD DATABASE V1 ===== */
+function onlineDatabaseSheetAllowed_(name) {
+  name = String(name || '').trim();
+  if (PN_ONLINE_DATABASE_ALLOWED_SHEETS.indexOf(name) < 0) {
+    throw new Error('Sheet database online tidak diizinkan: ' + name);
+  }
+  return name;
+}
+
+function onlineDatabaseBook_() {
+  return SpreadsheetApp.openById(PN_ONLINE_DATABASE_SPREADSHEET_ID);
+}
+
+function onlineDatabaseVersion_() {
+  return String(PropertiesService.getScriptProperties().getProperty(PN_ONLINE_DATABASE_VERSION_PROPERTY) || '0');
+}
+
+function onlineDatabaseBumpVersion_() {
+  const v = String(Date.now());
+  PropertiesService.getScriptProperties().setProperty(PN_ONLINE_DATABASE_VERSION_PROPERTY, v);
+  return v;
+}
+
+function onlineDatabaseClientValue_(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Math.round((value.getTime() - Date.UTC(1899,11,30)) / 86400000);
+  }
+  if (value === null || value === undefined) return '';
+  return value;
+}
+
+function onlineDatabaseStatus_(data) {
+  requireReviewAdmin_(data.token);
+  return {
+    ok:true,
+    spreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
+    version:onlineDatabaseVersion_(),
+    mode:'GOOGLE_SHEETS_PRIMARY',
+    sheets:PN_ONLINE_DATABASE_ALLOWED_SHEETS.slice()
+  };
+}
+
+function onlineDatabaseSheetRead_(data) {
+  requireReviewAdmin_(data.token);
+  const name = onlineDatabaseSheetAllowed_(data.sheet);
+  const sheet = onlineDatabaseBook_().getSheetByName(name);
+  if (!sheet) throw new Error('Sheet database online tidak ditemukan: ' + name);
+
+  const lastRow = Math.max(1, sheet.getLastRow());
+  const lastCol = Math.max(1, sheet.getLastColumn());
+  const values = sheet.getRange(1,1,lastRow,lastCol).getValues().map(function(row){
+    return row.map(onlineDatabaseClientValue_);
+  });
+
+  return {
+    ok:true,
+    sheet:name,
+    rows:lastRow,
+    cols:lastCol,
+    values:values,
+    version:onlineDatabaseVersion_(),
+    source:'GOOGLE_SHEETS'
+  };
+}
+
+function onlineDatabaseSheetPatch_(data) {
+  const admin = requireReviewAdmin_(data.token);
+  let patches = [];
+  try { patches = JSON.parse(String(data.patches || '[]')); }
+  catch (_) { throw new Error('Data perubahan Google Sheets tidak valid.'); }
+  if (!Array.isArray(patches) || !patches.length) {
+    return {ok:true, count:0, version:onlineDatabaseVersion_(), message:'Tidak ada perubahan untuk disimpan.'};
+  }
+  if (patches.length > 250) throw new Error('Terlalu banyak perubahan sekaligus. Maksimal 250 sel.');
+
+  const book = onlineDatabaseBook_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let count = 0;
+  try {
+    patches.forEach(function(p){
+      const sheetName = onlineDatabaseSheetAllowed_(p.sheet);
+      const addr = String(p.address || '').trim().toUpperCase();
+      if (!/^[A-Z]{1,3}[1-9][0-9]{0,5}$/.test(addr)) throw new Error('Alamat sel tidak valid: ' + addr);
+      const sheet = book.getSheetByName(sheetName);
+      if (!sheet) throw new Error('Sheet database online tidak ditemukan: ' + sheetName);
+      const range = sheet.getRange(addr);
+      if (p.clear === true || String(p.clear || '') === '1') range.clearContent();
+      else range.setValue(p.value === null || p.value === undefined ? '' : p.value);
+      count++;
+    });
+    SpreadsheetApp.flush();
+    const version = onlineDatabaseBumpVersion_();
+    adminAudit_('ONLINE_DATABASE_PATCH','OK',count + ' sel Google Sheets disimpan oleh ' + admin + '.');
+    return {
+      ok:true,
+      count:count,
+      version:version,
+      spreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
+      message:'Perubahan tersimpan langsung ke Google Sheets.'
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function excelDatabaseFolder_() {
   const props = PropertiesService.getScriptProperties();
   const savedId = String(props.getProperty(PN_EXCEL_FOLDER_PROPERTY) || '').trim();
