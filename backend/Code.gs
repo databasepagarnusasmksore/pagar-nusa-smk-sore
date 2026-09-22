@@ -131,10 +131,10 @@ function doGet(e) {
       excelCloud:true,
       excelCloudVersion:'6',
       primaryDatabase:'google-sheets',
-      primaryDatabaseVersion:'5',
+      primaryDatabaseVersion:'6',
       primaryDatabaseSpreadsheetId:PN_ONLINE_DATABASE_SPREADSHEET_ID,
       onlineDatabase:true,
-      onlineDatabaseVersion:'4',
+      onlineDatabaseVersion:'5',
       onlineDatabaseSheetsFirst:true,
       onlineDatabaseMode:'GOOGLE_SHEETS_PRIMARY',
       excelUiVisible:false,
@@ -2664,6 +2664,7 @@ function onlineDatabaseClientValue_(value) {
 
 function onlineDatabaseStatus_(data) {
   requireReviewAdmin_(data.token);
+  const backupAutomatic = ensureDailyBackupTrigger_();
   const requested = String(data.sheet || '').trim();
   let sheetVersion = '';
   if (requested && PN_ONLINE_DATABASE_ALLOWED_SHEETS.indexOf(requested) >= 0) {
@@ -2676,6 +2677,8 @@ function onlineDatabaseStatus_(data) {
     sheet:requested,
     sheetVersion:sheetVersion,
     mode:'GOOGLE_SHEETS_PRIMARY_DIRECT',
+    backupAutomatic:backupAutomatic,
+    backupSchedule:'Sekitar 02:15 WIB setiap hari',
     sheets:PN_ONLINE_DATABASE_ALLOWED_SHEETS.slice()
   };
 }
@@ -3309,6 +3312,31 @@ function cleanupOldBackups_(folder) {
   }
 
   return removed;
+}
+
+function ensureDailyBackupTrigger_() {
+  try {
+    const cache = CacheService.getScriptCache();
+    if (cache.get('pn-backup-trigger-ok') === '1') return true;
+
+    const active = ScriptApp.getProjectTriggers().some(function(trigger) {
+      return trigger.getHandlerFunction() === 'runDailyDatabaseBackup';
+    });
+    if (!active) {
+      ScriptApp.newTrigger('runDailyDatabaseBackup')
+        .timeBased()
+        .atHour(2)
+        .nearMinute(15)
+        .everyDays(1)
+        .inTimezone('Asia/Jakarta')
+        .create();
+      backupLog_('TRIGGER', 'Backup harian dipulihkan otomatis sekitar 02:15 WIB.');
+    }
+    cache.put('pn-backup-trigger-ok','1',21600);
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function runDailyDatabaseBackup() {
