@@ -7,7 +7,7 @@ const PN_DB_SOURCE='pn-database';
 const PN_DB_PENDING_KEY='pnExcelCloudPendingV2';
 const PN_DB_LAST_SYNC_KEY='pnExcelCloudLastSyncV1';
 const PN_DB_SYNC_DELAY=900;
-const PN_DB_DOWNLOAD_CONCURRENCY=2;
+const PN_DB_DOWNLOAD_CONCURRENCY=4;
 
 let pnCloudBusy=false;
 let pnCloudLoaded=false;
@@ -251,7 +251,7 @@ function pnCloudStatus(label='DATABASE CLOUD'){
   }
 }
 
-async function pnDownloadCloudWorkbook(token,quiet){
+async function pnDownloadCloudWorkbook(token,quiet,options={}){
   let manifest;
   try{
     manifest=await pnDatabasePost('databaseManifest',{token},30000);
@@ -269,6 +269,21 @@ async function pnDownloadCloudWorkbook(token,quiet){
   const count=Number(manifest.chunkCount||0);
   const size=Number(manifest.size||0);
   if(!Number.isInteger(count)||count<1||count>64||!Number.isFinite(size)||size<1)throw new Error('Metadata database cloud tidak valid.');
+
+  // FAST PATH:
+  // Jika salinan browser sudah sama persis dengan timestamp master server,
+  // jangan download ulang seluruh Excel. Cukup gunakan workbook lokal yang sudah terbuka.
+  const forceDownload=!!options.forceDownload;
+  const serverUpdated=String(manifest.updatedAt||'').trim();
+  const localUpdated=String(pnLastSyncStored()||'').trim();
+  const serverName=String(manifest.name||'').trim();
+  const localName=String(originalName||'').trim();
+  const sameName=!serverName||!localName||serverName===localName;
+  if(!forceDownload&&zipEntries&&serverUpdated&&localUpdated===serverUpdated&&sameName){
+    pnCloudStatus('CLOUD TERBARU');
+    if(!quiet)setStatus('✓ Database browser sudah sama dengan <b>SERVER CLOUD</b>. Tidak perlu download ulang file Excel.','ok');
+    return {exists:true,reusedLocal:true,name:manifest.name,size,updatedAt:manifest.updatedAt};
+  }
 
   const chunks=new Array(count);
   let next=0,done=0;
@@ -317,11 +332,21 @@ async function pnRestoreCloudDatabase(options={}){
   pnCloudCheckedToken=token;
   try{
     if(!quiet)setStatus('Menghubungkan database Excel utama dari server...');
-    const result=await pnDownloadCloudWorkbook(token,quiet);
+    const result=await pnDownloadCloudWorkbook(token,quiet,options);
     if(!result.exists){
       pnCloudLoaded=false;
       if(!quiet)setStatus('Database Excel pusat belum tersedia. Upload database sekali dari perangkat utama.');
       return false;
+    }
+
+    if(result.reusedLocal){
+      pnCloudLoaded=true;
+      pnCloudLoadedToken=token;
+      pnSetPending('');
+      pnCloudStatus();
+      pnSetLastSync(result.updatedAt);
+      if(!quiet)setStatus('✓ Database yang sudah tersimpan di browser masih <b>VERSI TERBARU</b>. Tidak ada download ulang.','ok');
+      return true;
     }
 
     const bytes=result.bytes;
@@ -394,7 +419,7 @@ function pnInitializeCloudFromCurrent(rawBytes=null,rawName=''){
         if(existing&&existing.exists){
           pnSetPending('');
           setStatus('Database utama sudah tersedia di <b>SERVER CLOUD</b>. Memuat master cloud tanpa upload ulang...','ok');
-          const loaded=await pnRestoreCloudDatabase({quiet:false});
+          const loaded=await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
           if(loaded)return true;
           throw new Error('Master cloud ditemukan tetapi belum berhasil dimuat.');
         }
@@ -420,7 +445,7 @@ function pnInitializeCloudFromCurrent(rawBytes=null,rawName=''){
       if(err.data&&err.data.code==='MASTER_EXISTS'){
         pnSetPending('');
         setStatus('Database utama sudah ada di server. File dari perangkat ini <b>TIDAK MENIMPA</b> database pusat. Memuat database pusat...','ok');
-        await pnRestoreCloudDatabase({quiet:false});
+        await pnRestoreCloudDatabase({quiet:false,forceDownload:true});
         return true;
       }
       try{

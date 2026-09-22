@@ -39,7 +39,7 @@ const PN_EXCEL_FILE_PROPERTY = 'PN_EXCEL_MASTER_FILE_ID_V1';
 const PN_EXCEL_FOLDER_NAME = 'Pagar Nusa - Database Excel Utama';
 const PN_EXCEL_MAX_BYTES = 20 * 1024 * 1024;
 const PN_EXCEL_MAX_BASE64_CHARS = 28 * 1024 * 1024;
-const PN_EXCEL_CHUNK_BYTES = 512 * 1024;
+const PN_EXCEL_CHUNK_BYTES = 1024 * 1024;
 const PN_EXCEL_BACKUP_PREFIX = 'PN_EXCEL_BACKUP_';
 const PN_EXCEL_BACKUP_KEEP = 5;
 const PN_EXCEL_HISTORY_SHEET_NAME = 'Riwayat Perubahan Database Excel';
@@ -110,7 +110,7 @@ function doGet(e) {
       backupAutomaticVersion:'1',
       backupRetentionDays:PN_BACKUP_RETENTION_DAYS,
       excelCloud:true,
-      excelCloudVersion:'1',
+      excelCloudVersion:'2',
       adminNotificationCenter:true,
       adminNotificationCenterVersion:'1',
       adminPasswordConfigured:adminPasswordConfigured_(),
