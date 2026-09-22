@@ -7,9 +7,9 @@ const PN_DB_SOURCE='pn-database';
 const PN_DB_PENDING_KEY='pnExcelCloudPendingV2';
 const PN_DB_LAST_SYNC_KEY='pnExcelCloudLastSyncV1';
 const PN_DB_MASTER_ID_KEY='pnExcelCloudMasterFileIdV1';
-const PN_DB_SYNC_DELAY=900;
+const PN_DB_SYNC_DELAY=120;
 const PN_DB_DOWNLOAD_CONCURRENCY=4;
-const PN_DB_BACKGROUND_CHECK_MS=5*60*1000;
+const PN_DB_BACKGROUND_CHECK_MS=30*1000;
 
 let pnCloudBusy=false;
 let pnCloudLoaded=false;
@@ -184,7 +184,7 @@ function pnDatabasePost(action,payload={},timeoutMs=90000){
     document.body.appendChild(frame);
     document.body.appendChild(form);
     form.submit();
-    if(action==='databaseManifest'||action==='databaseSave'||action==='databaseHistoryAdd')pollTimer=setTimeout(poll,900);
+    if(['databaseManifest','databaseSave','databaseHistoryAdd','databaseUploadBegin','databaseUploadChunk','databaseUploadCommit','databaseUploadAbort'].includes(action))pollTimer=setTimeout(poll,500);
   });
 }
 function pnHistoryEsc(value){
@@ -201,11 +201,34 @@ function pnEnsureHistoryUi(){
   if(document.getElementById('pnHistoryBtn'))return;
   const sync=pnEnsureLastSyncElement();
   if(!sync)return;
+
+  const syncNow=document.createElement('button');
+  syncNow.id='pnCloudSyncNow';
+  syncNow.type='button';
+  syncNow.textContent='☁ SINKRONKAN CLOUD SEKARANG';
+  syncNow.style.cssText='width:100%;margin:8px 0 0;padding:11px 12px;border:0;border-radius:9px;background:#0f766e;color:#fff;font-weight:900;cursor:pointer';
+  syncNow.onclick=async()=>{
+    if(!zipEntries){setStatus('Database lokal belum siap.','err');return}
+    if(!pnDbToken()){setStatus('Sesi Admin/cloud belum aktif. Login Admin sekali lagi.','err');return}
+    syncNow.disabled=true;
+    const old=syncNow.textContent;
+    syncNow.textContent='☁ MENYIMPAN CLOUD...';
+    try{
+      pnCloudGeneration++;
+      pnSetPending('update');
+      await pnRunQueuedCloudSync();
+    }finally{
+      syncNow.disabled=false;
+      syncNow.textContent=old;
+    }
+  };
+  sync.insertAdjacentElement('afterend',syncNow);
+
   const btn=document.createElement('button');
   btn.id='pnHistoryBtn';btn.type='button';btn.textContent='🕘 RIWAYAT PERUBAHAN';
   btn.style.cssText='width:100%;margin:8px 0 0;padding:10px 12px;border:0;border-radius:9px;background:#0f3d24;color:#fff;font-weight:900;cursor:pointer';
   btn.onclick=()=>window.pnOpenDatabaseHistory();
-  sync.insertAdjacentElement('afterend',btn);
+  syncNow.insertAdjacentElement('afterend',btn);
 
   const modal=document.createElement('div');
   modal.id='pnHistoryModal';
@@ -393,22 +416,70 @@ async function pnSaveCloudWorkbook(out,name,initialOnly){
   const token=pnDbToken();
   if(!token)throw new Error('Sesi database pusat belum aktif. Login admin terlebih dahulu.');
 
+  const bytes=out instanceof Uint8Array?out:new Uint8Array(exactArrayBuffer(out));
   const expectedFileId=initialOnly?'':pnMasterFileId();
-  const result=await pnDatabasePost('databaseSave',{
-    token,
-    name:name||originalName||'Database_Pagar_Nusa_BROWSER.xlsm',
-    base64:pnBytesToBase64(out),
-    initialOnly:initialOnly?'1':'0',
-    expectedFileId
-  },120000);
+  const chunkBytes=2*1024*1024;
+  const total=Math.ceil(bytes.length/chunkBytes);
+  if(!bytes.length)throw new Error('Database yang akan disimpan kosong.');
 
-  pnCloudLoaded=true;
-  pnCloudCheckedToken=token;
-  pnCloudLoadedToken=token;
-  pnCloudStatus();
-  pnSetLastSync(result.updatedAt);
-  pnSetMasterFileId(result.fileId);
-  return result;
+  let uploadId='';
+  try{
+    pnCloudStatus('CLOUD 0/'+total);
+    const begin=await pnDatabasePost('databaseUploadBegin',{
+      token,
+      name:name||originalName||'Database_Pagar_Nusa_BROWSER.xlsm',
+      size:bytes.length,
+      total,
+      initialOnly:initialOnly?'1':'0',
+      expectedFileId
+    },30000);
+    uploadId=String(begin.uploadId||'');
+    if(!uploadId)throw new Error('Server tidak memberikan ID upload database.');
+
+    let next=0,done=0;
+    const workers=[];
+    const concurrency=Math.min(4,total);
+
+    const worker=async()=>{
+      while(true){
+        const index=next++;
+        if(index>=total)return;
+        const start=index*chunkBytes;
+        const end=Math.min(bytes.length,start+chunkBytes);
+        const part=bytes.subarray(start,end);
+        await pnDatabasePost('databaseUploadChunk',{
+          token,uploadId,index,total,
+          base64:pnBytesToBase64(part)
+        },60000);
+        done++;
+        pnCloudStatus('CLOUD '+done+'/'+total);
+        pnRenderLastSync('pending');
+      }
+    };
+
+    for(let i=0;i<concurrency;i++)workers.push(worker());
+    await Promise.all(workers);
+
+    pnCloudStatus('CLOUD SIMPAN...');
+    const result=await pnDatabasePost('databaseUploadCommit',{
+      token,uploadId,total
+    },90000);
+
+    pnCloudLoaded=true;
+    pnCloudCheckedToken=token;
+    pnCloudLoadedToken=token;
+    pnCloudLastBackgroundCheck=Date.now();
+    pnCloudStatus('CLOUD TERSIMPAN');
+    pnSetLastSync(result.updatedAt);
+    pnSetMasterFileId(result.fileId);
+    pnRenderLastSync('success');
+    return result;
+  }catch(err){
+    if(uploadId){
+      pnDatabasePost('databaseUploadAbort',{token,uploadId,total},15000).catch(()=>{});
+    }
+    throw err;
+  }
 }
 
 function pnInitialUploadBytes(rawBytes){
@@ -499,16 +570,17 @@ async function pnRunQueuedCloudSync(){
   pnCloudSaveBusy=true;
   pnCloudSaveQueued=false;
   const generation=pnCloudGeneration;
-  pnCloudStatus('SINKRON CLOUD...');
+  pnCloudStatus('MENYIMPAN CLOUD...');
   pnRenderLastSync('pending');
+  setStatus('☁ <b>Menyimpan perubahan ke cloud...</b> Data lokal sudah aman; tunggu sampai muncul CLOUD TERSIMPAN.','ok');
 
   try{
     const out=buildCurrentWorkbook();
     await pnSaveCloudWorkbook(out,originalName,false);
     if(pnCloudGeneration===generation&&!pnCloudSaveQueued){
       pnSetPending('');
-      pnCloudStatus();
-      setStatus('✓ Sinkronisasi cloud selesai. Data terbaru siap dibuka dari perangkat lain.','ok');
+      pnCloudStatus('CLOUD TERSIMPAN');
+      setStatus('☁ ✓ <b>CLOUD TERSIMPAN.</b> Data terbaru sudah siap dibuka dari perangkat lain.','ok');
     }
   }catch(err){
     console.error('Sinkronisasi database cloud gagal:',err);
@@ -611,7 +683,8 @@ window.afterMutation=async function(msg){
   void pnLogDatabaseHistory(msg);
 
   if(p&&p.cloudQueued){
-    setStatus('<b>'+esc(msg)+'</b>. Tersimpan langsung di perangkat/browser. <b>Sinkronisasi cloud berjalan otomatis di belakang</b>; Anda dapat lanjut bekerja.','ok');
+    pnCloudStatus('MENUNGGU CLOUD');
+    setStatus('<b>'+esc(msg)+'</b>. Lokal sudah tersimpan. ☁ <b>Cloud sedang disinkronkan sekarang</b> — tunggu sampai status CLOUD TERSIMPAN sebelum pindah perangkat.','ok');
     return;
   }
   if(p&&p.direct){
@@ -652,7 +725,7 @@ function pnMaybeLoadCloud(force=false){
 setTimeout(()=>pnRenderLastSync('idle'),120);
 setTimeout(()=>pnEnsureHistoryUi(),180);
 window.addEventListener('pn:database-panel-open',()=>{
-  setTimeout(()=>pnMaybeLoadCloud(false),60);
+  setTimeout(()=>pnMaybeLoadCloud(true),60);
 });
 setInterval(()=>{if(pnDatabasePanelOpen())pnMaybeLoadCloud(false)},PN_DB_BACKGROUND_CHECK_MS);
 window.addEventListener('online',()=>{
