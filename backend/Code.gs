@@ -20,6 +20,7 @@ const PN_PENGURUS_SESSION_SECONDS = 21600;
 
 const PN_CONTENT_FOLDER_ID = '1DaUWvaUAMTIPm1PbVdrQilv83vN6XMKv';
 const PN_REVIEW_ADMIN_USER = 'admin';
+const PN_ADMIN_WEB_LOGIN_HASH = '3b396371ec891e73db1ecb5f70d341c4fe6cc6f52fdea96d55dc3fe786d3a639'; // kompatibilitas login website; otomatis dimigrasikan ke credential V2 pada login pertama
 const PN_ADMIN_PASS_PROPERTY = 'PN_ADMIN_PASS_HASH_V1'; // legacy Script Property; dimigrasikan otomatis lalu dihapus
 const PN_ADMIN_CREDENTIAL_PROPERTY = 'PN_ADMIN_CREDENTIAL_V2';
 const PN_ADMIN_PEPPER_PROPERTY = 'PN_ADMIN_PEPPER_V2';
@@ -109,7 +110,7 @@ function doGet(e) {
       accountAdminPortal:true,
       accountAdminPortalVersion:'4',
       adminPassword:true,
-      adminPasswordVersion:'4',
+      adminPasswordVersion:'5',
       adminPersistentSession:true,
       adminPersistentSessionVersion:'1',
       backupAutomatic:true,
@@ -120,6 +121,7 @@ function doGet(e) {
       adminNotificationCenter:true,
       adminNotificationCenterVersion:'1',
       adminPasswordConfigured:adminPasswordConfigured_(),
+      adminAutoBootstrap:true,
       adminPasswordRecoveryAvailable:adminPasswordRecoveryAvailable_()
     });
   }
@@ -1303,6 +1305,8 @@ function adminVerifyPassword_(password) {
   const props = PropertiesService.getScriptProperties();
   const raw = props.getProperty(PN_ADMIN_CREDENTIAL_PROPERTY);
   const pepper = props.getProperty(PN_ADMIN_PEPPER_PROPERTY) || '';
+
+  // Credential V2 menjadi sumber utama setelah login pertama berhasil.
   if (raw && pepper) {
     let credential = null;
     try { credential = JSON.parse(raw); } catch (_) {}
@@ -1311,16 +1315,30 @@ function adminVerifyPassword_(password) {
     return secureEqual_(actual, credential.hash);
   }
 
-  // Migrasi aman dari hash lama HANYA jika hash lama sudah berada di Script Properties.
-  // Tidak ada lagi hash/password fallback di source GitHub publik.
+  // Migrasi otomatis dari Script Property lama bila masih tersedia.
   const legacy = props.getProperty(PN_ADMIN_PASS_PROPERTY) || '';
   if (legacy && secureEqual_(sha256Hex_(password), legacy)) {
     adminStoreCredential_(password);
     return true;
   }
-  if (!raw && !legacy) {
-    throw new Error('Password admin server belum dikonfigurasi. Jalankan initializeAdminSecurity_() dari Apps Script terlebih dahulu.');
+
+  // BOOTSTRAP OTOMATIS:
+  // Password yang sama dengan Login Admin website dapat dipakai langsung.
+  // Setelah cocok sekali, server langsung menyimpannya sebagai Credential V2
+  // sehingga initializeAdminSecurity_() tidak perlu dijalankan manual.
+  const webHash = String(PN_ADMIN_WEB_LOGIN_HASH || '').trim().toLowerCase();
+  const candidateHash = sha256Hex_(String(password || '')).toLowerCase();
+  if (webHash && secureEqual_(candidateHash, webHash)) {
+    adminStoreCredential_(password);
+    if (!props.getProperty(PN_ADMIN_AUTH_VERSION_PROPERTY)) {
+      props.setProperty(PN_ADMIN_AUTH_VERSION_PROPERTY, adminGenerateSecret_());
+    }
+    props.deleteProperty(PN_ADMIN_BOOTSTRAP_PROPERTY);
+    props.deleteProperty(PN_ADMIN_LOGIN_STATE_PROPERTY);
+    adminAudit_('SECURITY_AUTO_INIT','OK','Credential V2 dibuat otomatis dari Login Admin website.');
+    return true;
   }
+
   return false;
 }
 
@@ -1341,7 +1359,11 @@ function initializeAdminSecurity_() {
 
 function adminPasswordConfigured_() {
   const props = PropertiesService.getScriptProperties();
-  return !!(props.getProperty(PN_ADMIN_CREDENTIAL_PROPERTY) || props.getProperty(PN_ADMIN_PASS_PROPERTY));
+  return !!(
+    props.getProperty(PN_ADMIN_CREDENTIAL_PROPERTY) ||
+    props.getProperty(PN_ADMIN_PASS_PROPERTY) ||
+    PN_ADMIN_WEB_LOGIN_HASH
+  );
 }
 
 function adminPasswordRecoveryAvailable_() {
