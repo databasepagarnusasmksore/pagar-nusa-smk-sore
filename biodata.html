@@ -67,7 +67,90 @@ const fields=[
 let auth,user=null,bio=null,currentUsername='',currentMemberId='',loginInFlight=false;
 function endpointReady(){return /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/i.test(PN_BIODATA_ENDPOINT.trim())}
 function buildFields(){const grid=$('bioGrid');grid.innerHTML='';fields.forEach(([label,key,type='text',opts])=>{const wrap=document.createElement('div');wrap.className='field'+(lockedKeys.has(key)?' locked':'')+((key==='address'||key==='notes')?' full':'');const lab=document.createElement('label');lab.htmlFor='bio_'+key;lab.innerHTML='<span>'+label+'</span>'+(lockedKeys.has(key)?'<span class="lock">DIKUNCI ADMIN</span>':'');wrap.appendChild(lab);let el;if(type==='textarea'){el=document.createElement('textarea')}else if(type==='select'){el=document.createElement('select');opts.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v||'- Pilih -';el.appendChild(o)})}else{el=document.createElement('input');el.type=type}el.id='bio_'+key;el.dataset.key=key;el.disabled=true;wrap.appendChild(el);grid.appendChild(wrap)})}
-function request(action,payload){return new Promise((resolve,reject)=>{if(!endpointReady()){reject(new Error('Web App biodata belum diaktifkan.'));return}const rid='bio-'+Date.now()+'-'+Math.random().toString(36).slice(2);const frame=document.createElement('iframe');frame.name='bioFrame'+rid.replace(/\W/g,'');frame.style.display='none';const form=document.createElement('form');form.method='POST';form.action=PN_BIODATA_ENDPOINT;form.target=frame.name;form.style.display='none';Object.entries({action,rid,...payload}).forEach(([k,v])=>{const inp=document.createElement('input');inp.type='hidden';inp.name=k;inp.value=String(v??'');form.appendChild(inp)});let done=false;const cleanup=()=>{window.removeEventListener('message',onMsg);clearTimeout(timer);form.remove();setTimeout(()=>frame.remove(),300)};const onMsg=e=>{const d=e.data;if(!d||d.source!=='pn-biodata'||d.rid!==rid||done)return;done=true;cleanup();d.ok?resolve(d):reject(new Error(d.message||'Permintaan biodata gagal.'))};window.addEventListener('message',onMsg);const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('Server biodata terlalu lama merespons.'))},30000);document.body.append(frame,form);form.submit()})}
+function biodataJsonp(action,payload={},timeout=6000){
+  return new Promise((resolve,reject)=>{
+    const cb='pnBioPoll_'+Date.now()+'_'+Math.random().toString(36).slice(2).replace(/\W/g,'');
+    const script=document.createElement('script');
+    let done=false;
+    const cleanup=()=>{clearTimeout(timer);try{delete window[cb]}catch(_){};script.remove()};
+    window[cb]=data=>{if(done)return;done=true;cleanup();resolve(data)};
+    const q=new URLSearchParams({action,callback:cb,_ts:String(Date.now())});
+    Object.entries(payload).forEach(([k,v])=>q.set(k,String(v??'')));
+    script.src=PN_BIODATA_ENDPOINT+'?'+q.toString();
+    script.async=true;
+    script.onerror=()=>{if(done)return;done=true;cleanup();reject(new Error('Server biodata belum dapat dihubungi.'))};
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('Pemeriksaan hasil biodata terlalu lama.'))},timeout);
+    document.head.appendChild(script);
+  });
+}
+
+function request(action,payload,timeout=45000){
+  return new Promise((resolve,reject)=>{
+    if(!endpointReady()){reject(new Error('Web App biodata belum diaktifkan.'));return}
+    const rid='bio-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+    const frame=document.createElement('iframe');
+    frame.name='bioFrame'+rid.replace(/\W/g,'');
+    frame.style.display='none';
+    frame.setAttribute('aria-hidden','true');
+
+    const form=document.createElement('form');
+    form.method='POST';
+    form.action=PN_BIODATA_ENDPOINT;
+    form.target=frame.name;
+    form.style.display='none';
+    Object.entries({action,rid,...payload}).forEach(([k,v])=>{
+      const inp=document.createElement('input');
+      inp.type='hidden';inp.name=k;inp.value=String(v??'');
+      form.appendChild(inp);
+    });
+
+    let done=false,pollBusy=false,lastErr=null;
+    const started=Date.now();
+    const cleanup=()=>{
+      window.removeEventListener('message',onMsg);
+      clearTimeout(timer);
+      form.remove();
+      setTimeout(()=>frame.remove(),300);
+    };
+    const finish=(ok,value)=>{
+      if(done)return;
+      done=true;cleanup();
+      ok?resolve(value):reject(value instanceof Error?value:new Error(String(value||'Permintaan biodata gagal.')));
+    };
+    const onMsg=e=>{
+      const d=e.data;
+      if(!d||d.source!=='pn-biodata'||d.rid!==rid||done)return;
+      d.ok?finish(true,d):finish(false,new Error(d.message||'Permintaan biodata gagal.'));
+    };
+    window.addEventListener('message',onMsg);
+
+    async function poll(){
+      if(pollBusy||done)return;
+      pollBusy=true;
+      try{
+        while(!done&&Date.now()-started<timeout){
+          await new Promise(r=>setTimeout(r,450));
+          try{
+            const r=await biodataJsonp('contentResult',{rid},5000);
+            if(r&&r.pending)continue;
+            if(r&&r.ok){finish(true,r);return}
+            if(r&&!r.pending){finish(false,new Error(r.message||'Permintaan biodata ditolak.'));return}
+          }catch(err){lastErr=err}
+        }
+        if(!done)finish(false,lastErr||new Error('Server biodata sedang sibuk. Silakan coba sekali lagi.'));
+      }finally{pollBusy=false}
+    }
+
+    const timer=setTimeout(()=>{
+      if(!done)finish(false,lastErr||new Error('Server biodata sedang sibuk. Silakan coba sekali lagi.'));
+    },timeout+1000);
+
+    document.body.append(frame,form);
+    form.submit();
+    poll();
+  });
+}
+
 function render(data){bio=data;fields.forEach(([,key])=>{const el=$('bio_'+key);if(el)el.value=String(data?.[key]??'')});setEdit(false)}
 function setEdit(edit){document.querySelectorAll('#bioGrid [data-key]').forEach(el=>{el.disabled=!edit||lockedKeys.has(el.dataset.key)});$('editBtn').classList.toggle('hidden',edit);$('saveBtn').classList.toggle('hidden',!edit);$('cancelBtn').classList.toggle('hidden',!edit);$('savedBox').classList.remove('show');$('bioStatus').textContent='';$('bioStatus').className='status'}
 function pnUktEsc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -121,7 +204,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
 setInterval(pnRefreshPortalLive,20000);
 function loginErrorText(e){const c=String(e?.code||'');if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))return'Email atau password tidak benar.';if(c.includes('too-many-requests'))return'Terlalu banyak percobaan login. Coba beberapa saat lagi.';return e?.message||'Login gagal.'}
 buildFields();
-if(endpointReady()){$('setupNotice').textContent='Portal Biodata aktif · UKT 1–5 + ASPEL · versi 12. Login cukup menggunakan email dan password.';$('setupNotice').classList.add('ok');$('loginBtn').disabled=false}else{$('setupNotice').innerHTML='<b>Portal Biodata sudah dipisahkan dari CBT.</b><br>Menunggu URL Web App Apps Script biodata baru dipasang oleh admin.'}
+if(endpointReady()){$('setupNotice').textContent='Portal Biodata aktif · UKT 1–5 + ASPEL · versi 13. Login cukup menggunakan email dan password.';$('setupNotice').classList.add('ok');$('loginBtn').disabled=false}else{$('setupNotice').innerHTML='<b>Portal Biodata menggunakan backend utama.</b><br>Pastikan Code.gs V14 sudah di-deploy sebagai versi baru.'}
 const app=initializeApp(FIREBASE_CONFIG);auth=getAuth(app);setPersistence(auth,browserSessionPersistence).catch(()=>{});
 const passwordInput=$('password');
 function pnClearLoginPassword(){
