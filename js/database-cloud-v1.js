@@ -418,7 +418,7 @@ async function pnSaveCloudWorkbook(out,name,initialOnly){
 
   const bytes=out instanceof Uint8Array?out:new Uint8Array(exactArrayBuffer(out));
   const expectedFileId=initialOnly?'':pnMasterFileId();
-  const chunkBytes=2*1024*1024;
+  const chunkBytes=1536*1024;
   const total=Math.ceil(bytes.length/chunkBytes);
   if(!bytes.length)throw new Error('Database yang akan disimpan kosong.');
 
