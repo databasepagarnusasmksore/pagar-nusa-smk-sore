@@ -297,6 +297,7 @@ window.pnRevokeAdminSession=async function(tokenOverride){
 window.addEventListener('online',()=>{if(persistentGet(AUTH_KEY)==='1'&&persistentGet(TOKEN_KEY))loadRows({quiet:true})});
 
 function installFastLogin(){
+  return;
   if(window.__pnCanonicalAdminLoginV1)return;
   if(window.submitAdminLogin&&window.submitAdminLogin.__serverAuthV5)return;
   window.submitAdminLogin=async function(ev){

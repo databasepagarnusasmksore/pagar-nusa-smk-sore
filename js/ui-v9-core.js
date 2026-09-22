@@ -119,21 +119,15 @@ async function submitAdminLogin(ev){
 
     localStorage.setItem('pnAdminAuth','1');
     sessionStorage.setItem('pnAdminAuth','1');
-    closeAdminLogin();
-    enterAdmin(true);
-
-    // Password hanya dipakai sesaat di memori untuk membuat sesi server.
-    // Dashboard tidak ditahan jika Apps Script lambat/tidak tersedia.
-    if(typeof window.pnAdminServerAuthenticateV1==='function'){
-      Promise.resolve()
-        .then(()=>window.pnAdminServerAuthenticateV1(u,p))
-        .catch(e=>{
-          try{window.dispatchEvent(new CustomEvent('pn:admin-session-error',{detail:{message:String(e&&e.message||e||'Backend admin belum aktif.')}}))}catch(_){}
-        });
-    }
 
     const passEl=document.getElementById('adminPass');
     if(passEl)passEl.value='';
+
+    closeAdminLogin();
+    enterAdmin(true);
+    return false;
+  }catch(e){
+    if(err)err.textContent='Login admin gagal diproses. Silakan refresh halaman.';
     return false;
   }finally{
     if(submit){submit.disabled=false;submit.textContent='MASUK'}
