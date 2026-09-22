@@ -2809,7 +2809,7 @@ function excelDatabaseUploadBegin_(data) {
     admin:String(admin || '')
   };
   PropertiesService.getScriptProperties().setProperty(excelDatabaseUploadMetaKey_(uploadId), JSON.stringify(meta));
-  return {ok:true, uploadId:uploadId, total:total, size:size, chunkBytes:PN_EXCEL_CHUNK_BYTES, version:'1'};
+  return {ok:true, uploadId:uploadId, total:total, size:size, chunkBytes:PN_EXCEL_UPLOAD_CHUNK_BYTES, version:'2'};
 }
 
 function excelDatabaseUploadChunk_(data) {
